@@ -35,6 +35,21 @@ def method_v1_notags():
     return method_v1(use_tags=False)
 
 
+def method_v2(use_tags=True):
+    """M2: emissions learned on degraded IDSSE + kickoffs + tag prior + CV-tuned decoder."""
+    from possession import io_atd, io_tagging, v2
+    match = io_atd.load_match()
+    tags = io_tagging.load() if use_tags else None
+    codes, dbg = v2.predict(match, tags, use_tags=use_tags, return_debug=True)
+    print("evidence scale (classifier nats per v1 nat): {:.2f}".format(dbg["evidence_scale"]))
+    describe(codes, match, dbg)
+    return codes
+
+
+def method_v2_notags():
+    return method_v2(use_tags=False)
+
+
 def describe(codes, match, dbg):
     """Ground-truth-free plausibility summary of a prediction (aggregates only)."""
     import numpy as np
@@ -63,8 +78,10 @@ METHODS = {
     "baseline50": method_baseline50,
     "v1": method_v1,
     "v1_notags": method_v1_notags,
+    "v2": method_v2,
+    "v2_notags": method_v2_notags,
 }
-DEFAULT_METHOD = "v1"
+DEFAULT_METHOD = "v2"
 
 
 def main():

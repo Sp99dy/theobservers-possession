@@ -28,6 +28,16 @@ OUT_DIR = os.environ.get("POSSESSION_OUT_DIR") or os.path.join(REPO_DIR, "out")
 
 SUBMISSION_NAME = "TheObservers.csv"
 
+# IDSSE / DFL open data (public, CC-BY 4.0): raw XML downloaded by scripts/download_idsse.py.
+# Kept outside the repo only because of its size (several GB).
+IDSSE_DIR = os.environ.get("IDSSE_DIR") or os.path.join(os.path.dirname(REPO_DIR), "idsse-data")
+
+# Label convention bridge, DFL -> challenge [F]. DFL's BallPossession flips on every touch
+# (pooled over 7 matches: 4.6 possessions/min, median 3.7 s, 37% shorter than 2 s). The challenge
+# counts *controlled* possession only ("a player keeps the ball for a few seconds"; a touch or
+# deflection is not a change). We read "a few seconds" at its lower end: 2 s.
+CONTROL_MIN_S = 2.0
+
 # -- canonical coordinates -----------------------------------------------------------------------
 
 # Pitch size in metres, from games.py ("measured from the corrected tracking"). The ATD metadata
@@ -71,6 +81,9 @@ TEAM_MARGIN_SCALE_M = 2.0    # [F] a 2 m gap between the nearest home and neares
 TEAM_MARGIN_CLIP = 1.5       #     clear call; beyond 3 m more distance adds nothing.
 TERRITORY_SCALE_M = 20.0     # [F] centroid 20 m into a half = sustained territorial pressure.
 TERRITORY_LLR = 0.1          # [F] weak: territory and possession correlate only loosely.
+
+V1_CLEAR_CALL_NATS = 1.2     # [M] median |y| on close-control frames (ball within 1.5 m of the
+                             # nearest player) on BAR-ATH tracking; v2 rescales v1-style terms to it.
 
 # -- kickoffs --------------------------------------------------------------------------------------
 KICKOFF_HALFWAY_TOL_M = 1.5  # [M] player position noise around the halfway line.

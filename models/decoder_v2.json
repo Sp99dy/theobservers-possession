@@ -1,0 +1,22 @@
+{
+ "cv_pooled": {
+  "alive_dead_f1": 0.9691837415108973,
+  "gt_mean_spell_duration_s": 10.968864650470996,
+  "macro_f1": 0.8973385765372807,
+  "mean_spell_duration_s": 12.835967365967365,
+  "n_gt_spells": 2017,
+  "n_pred_spells": 1716,
+  "spell_f1_mean": 0.6522368068577552,
+  "team_acc_both_alive": 0.8926874776817848
+ },
+ "decoder": {
+  "bias_d": 0.5,
+  "enter_d": 10.0,
+  "leave_d": 5.0,
+  "min_d": 20,
+  "min_team": 12,
+  "step_weight": 3.0,
+  "team_cost": 2.0
+ },
+ "source": "IDSSE LOMO CV, run 'v2'"
+}

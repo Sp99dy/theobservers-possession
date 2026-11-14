@@ -68,3 +68,14 @@ def test_v1_is_deterministic_and_graded_only():
     second = v1.predict(io_atd.load_match(), io_tagging.load())
     assert hashlib.sha256(write.render(first)).digest() == hashlib.sha256(write.render(second)).digest()
     assert (first[~m.graded] == X).all() and (first[m.graded] != X).all()
+
+
+@requires_data
+def test_v2_is_deterministic_and_graded_only():
+    from possession import io_tagging, v2
+    from possession.canonical import X
+    m = io_atd.load_match()
+    first = v2.predict(m, io_tagging.load())
+    second = v2.predict(io_atd.load_match(), io_tagging.load())
+    assert write.render(first) == write.render(second)
+    assert (first[~m.graded] == X).all() and (first[m.graded] != X).all()

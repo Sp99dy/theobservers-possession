@@ -4,10 +4,11 @@ This is Team TheObservers' Phase 1 submission. For every frame of the BAR-ATH ta
 who has the ball: `H` (Barcelona, ball alive), `A` (Athletic, ball alive), `D` (dead ball), or `X`
 (not graded).
 
-> **Status: v1 (M1).** Rule-based evidence, algorithmic kickoff detection and a Smart Tagging prior
-> feed a minimum-duration Viterbi decoder over {H, A, D}. Next is M2: evidence learned on IDSSE open
-> data, with the decoder costs tuned by leave-one-match-out CV. See `experiments.md` and
-> `TECHNICAL.md`.
+> **Status: v2 (M2), submitted.** A gradient-boosting classifier trained on IDSSE open data, which
+> is corrupted to look like the BAR-ATH tracking, gives per-frame evidence. Kickoff detection and a
+> Smart Tagging prior are added, and a minimum-duration Viterbi decoder over {H, A, D} turns the
+> evidence into labels. IDSSE leave-one-match-out CV (nested) spellF1 is 0.643, against 0.389 for
+> the v1 rules. See `experiments.md` and `TECHNICAL.md`.
 
 ## Layout
 
@@ -27,10 +28,21 @@ possession/
   io_tagging.py             Smart Tagging -> frame intervals
   tagging_prior.py          Smart Tagging as soft evidence for the decoder
   decode.py                 minimum-duration Viterbi over {H, A, D}
-  v1.py                     the v1 pipeline
+  v1.py                     the v1 pipeline (rules; M1 baseline)
+  io_idsse.py               IDSSE / DFL open data -> Match + controlled-possession labels
+  degrade.py                corrupts IDSSE to match BAR-ATH tracking statistics (fitted on tracking only)
+  model.py                  training copies, HGB emission classifier, save/load
+  cv.py                     leave-one-match-out CV and decoder tuning (all model selection)
+  v2.py                     the v2 pipeline (submitted)
+models/                     emission_v2.joblib + decoder_v2.json (committed; run.py never retrains)
 scripts/
   reproduce_baseline.py     byte-identity check against the organisers' baseline_*.csv
   public_check.py           public 5-minute window, sanity only (never used for selection)
+  download_idsse.py         fetch the IDSSE open data (CC-BY 4.0)
+  idsse_conventions.py      label-convention comparison (DFL touch-level vs controlled possession)
+  build_idsse_features.py   fit the degrader, build degraded IDSSE feature caches
+  cv_idsse.py               LOMO CV, ablations, nested decoder tuning
+  train_idsse.py            final model on all 7 IDSSE matches -> models/
 tests/                      pytest; synthetic data, plus count-only checks that run if the data is present
 ```
 
