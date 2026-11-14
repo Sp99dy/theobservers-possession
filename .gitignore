@@ -1,0 +1,26 @@
+# ---------------------------------------------------------------------------------------------
+# This repository is public. The BAR-ATH match data is gated and must never be committed --
+# not raw, not cached, not as features, not as a submission file.
+# ---------------------------------------------------------------------------------------------
+data/
+cache/
+out/
+*.csv
+*.npz
+*.npy
+*.parquet
+*.pkl
+*.mp4
+*.xml
+*.txt
+!requirements.txt
+
+# Python / editors
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+.idea/
+.vscode/
+.DS_Store
