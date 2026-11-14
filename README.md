@@ -4,9 +4,10 @@ This is Team TheObservers' Phase 1 submission. For every frame of the BAR-ATH ta
 who has the ball: `H` (Barcelona, ball alive), `A` (Athletic, ball alive), `D` (dead ball), or `X`
 (not graded).
 
-> **Status: M0 scaffold.** The loader, metric wrapper and writer work. The pipeline reproduces the
-> organisers' four baselines byte for byte. The real model comes in M1 and M2 (rules + HMM, then
-> emissions learned on IDSSE open data with a segmental decoder). See `experiments.md`.
+> **Status: v1 (M1).** Rule-based evidence, algorithmic kickoff detection and a Smart Tagging prior
+> feed a minimum-duration Viterbi decoder over {H, A, D}. Next is M2: evidence learned on IDSSE open
+> data, with the decoder costs tuned by leave-one-match-out CV. See `experiments.md` and
+> `TECHNICAL.md`.
 
 ## Layout
 
@@ -20,6 +21,13 @@ possession/
   metrics.py                wrapper over the organisers' scorer (also used for IDSSE CV)
   write.py                  frame,label CSV writer (LF, byte-stable)
   baseline.py               the organisers' baseline through our pipeline (pipeline check)
+  features.py               per-frame identity-free features (one code path for every source)
+  rules.py                  v1 evidence: dead-ball score z and home-vs-away score y
+  kickoff.py                algorithmic kickoff detection (law 8 line-up)
+  io_tagging.py             Smart Tagging -> frame intervals
+  tagging_prior.py          Smart Tagging as soft evidence for the decoder
+  decode.py                 minimum-duration Viterbi over {H, A, D}
+  v1.py                     the v1 pipeline
 scripts/
   reproduce_baseline.py     byte-identity check against the organisers' baseline_*.csv
   public_check.py           public 5-minute window, sanity only (never used for selection)

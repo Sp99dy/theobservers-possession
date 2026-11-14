@@ -56,3 +56,15 @@ def test_baseline_smooth50_byte_identical():
     except (OSError, subprocess.CalledProcessError):
         theirs = write.sha256_file(config.MTAH_REPO_DIR + "/" + rel, normalise_crlf=True)
     assert ours == theirs
+
+
+@requires_data
+def test_v1_is_deterministic_and_graded_only():
+    from possession import io_tagging, v1
+    from possession.canonical import X
+    m = io_atd.load_match()
+    tags = io_tagging.load()
+    first = v1.predict(m, tags)
+    second = v1.predict(io_atd.load_match(), io_tagging.load())
+    assert hashlib.sha256(write.render(first)).digest() == hashlib.sha256(write.render(second)).digest()
+    assert (first[~m.graded] == X).all() and (first[m.graded] != X).all()

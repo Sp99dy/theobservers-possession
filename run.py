@@ -21,10 +21,50 @@ def method_baseline50():
     return baseline.baseline_labels(baseline.baseline_codes(), 50)
 
 
+def method_v1(use_tags=True):
+    """M1: rule-based evidence + kickoff detection + Smart Tagging prior + segmental Viterbi."""
+    from possession import io_atd, io_tagging, v1
+    match = io_atd.load_match()
+    tags = io_tagging.load() if use_tags else None
+    codes, dbg = v1.predict(match, tags, use_tags=use_tags, return_debug=True)
+    describe(codes, match, dbg)
+    return codes
+
+
+def method_v1_notags():
+    return method_v1(use_tags=False)
+
+
+def describe(codes, match, dbg):
+    """Ground-truth-free plausibility summary of a prediction (aggregates only)."""
+    import numpy as np
+    g = match.graded
+    share = {k: float(np.mean(codes[g] == i)) for i, k in enumerate("HAD")}
+    n_poss, n_dead, lengths = 0, 0, []
+    for _, s, e in match.half_blocks():
+        c = codes[s:e]
+        b = np.flatnonzero(np.diff(c)) + 1
+        starts, stops = np.r_[0, b], np.r_[b, len(c)]
+        for a, z in zip(starts, stops):
+            if c[a] == 2:
+                n_dead += 1
+            else:
+                n_poss += 1
+                lengths.append(z - a)
+    print("kickoffs detected: {} (pre-kickoff spans: {})  speed threshold {:.2f} m/s  "
+          "attack sign {}".format(len(dbg["kickoffs"]), len(dbg["pre_kickoff"]),
+                                  dbg["speed_threshold"], dbg["attack_sign"]))
+    print("graded shares  H {H:.3f}  A {A:.3f}  D {D:.3f}".format(**share))
+    print("possessions {}  mean {:.1f}s  median {:.1f}s  dead-ball stretches {}".format(
+        n_poss, np.mean(lengths) / 25, np.median(lengths) / 25, n_dead), flush=True)
+
+
 METHODS = {
     "baseline50": method_baseline50,
+    "v1": method_v1,
+    "v1_notags": method_v1_notags,
 }
-DEFAULT_METHOD = "baseline50"
+DEFAULT_METHOD = "v1"
 
 
 def main():
