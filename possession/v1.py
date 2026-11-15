@@ -36,5 +36,5 @@ def predict(match, tags=None, use_tags=True, return_debug=False):
                                  C.SWITCH_COST, fill=X)
     if return_debug:
         return codes, {"kickoffs": kos, "pre_kickoff": pre, "speed_threshold": speed_threshold,
-                       "attack_sign": m.attack_sign}
+                       "attack_sign": m.attack_sign, "ll": ll}
     return codes

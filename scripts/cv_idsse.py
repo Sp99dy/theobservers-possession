@@ -38,6 +38,9 @@ def blocks_of(g):
 def column_subset(names, which):
     if which == "all":
         return None
+    if which.startswith("no-"):
+        drop = {"no-touch": "touch_", "no-slow": "slow_"}[which]
+        return [j for j, n in enumerate(names) if not n.startswith(drop)]
     prefixes = FEATURE_SETS[which]
     # "speed"/"vx" columns are motion; excluded from the ball and ball+shape sets.
     cols = [j for j, n in enumerate(names) if n.startswith(prefixes)
@@ -48,13 +51,20 @@ def column_subset(names, which):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--tag", default="v2")
-    ap.add_argument("--features", default="all", choices=["all", "ball", "ball+shape"])
+    ap.add_argument("--features", default="all",
+                    choices=["all", "ball", "ball+shape", "no-touch", "no-slow"])
+    ap.add_argument("--feature-version", type=int, default=features.FEATURE_VERSION,
+                    help="design-matrix version (2 = + touch detection and slowdown features)")
     ap.add_argument("--nested", action="store_true")
     ap.add_argument("--skip-v1", action="store_true")
+    ap.add_argument("--hgb", default="{}", help='JSON overrides of HGB_PARAMS, e.g. {"max_iter": 600}')
+    ap.add_argument("--more-copies", action="store_true", help="train on 8 copies per match, not 4")
+    ap.add_argument("--train-clean", action="store_true",
+                    help="ablation: train on clean IDSSE (no degrader); still scored on degraded")
     args = ap.parse_args()
     with open(PARAMS_PATH) as handle:
         params = json.load(handle)
-    ver = features.FEATURE_VERSION
+    ver = args.feature_version
     t0 = time.time()
 
     oof_path = os.path.join(config.CACHE_DIR, "oof_{}.npz".format(args.tag))
@@ -70,8 +80,10 @@ def main():
         oof = {}
         for mid in io_idsse.MATCH_IDS:
             others = [m for m in io_idsse.MATCH_IDS if m != mid]
-            Xtr, ytr, _ = model.training_rows(others, params, ver)
-            mdl = model.train(Xtr, ytr, cols)
+            copies = (model.CLEAN_COPIES if args.train_clean else
+                      model.TRAIN_COPIES_X2 if args.more_copies else model.TRAIN_COPIES)
+            Xtr, ytr, _ = model.training_rows(others, params, ver, copies)
+            mdl = model.train(Xtr, ytr, cols, **json.loads(args.hgb))
             oof[mid] = model.emission_ll(mdl, evals[mid][0]).astype(np.float32)
             print("fold {}: trained on {} rows, {:.0f}s".format(mid, len(ytr), time.time() - t0),
                   flush=True)

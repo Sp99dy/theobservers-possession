@@ -50,6 +50,37 @@ def method_v2_notags():
     return method_v2(use_tags=False)
 
 
+def method_v3(use_tags=True):
+    """M3: larger classifier + v1/v2 evidence ensemble, settings chosen on IDSSE nested CV."""
+    from possession import io_atd, io_tagging, v3
+    match = io_atd.load_match()
+    tags = io_tagging.load() if use_tags else None
+    codes, dbg = v3.predict(match, tags, use_tags=use_tags, return_debug=True)
+    print("evidence scale {:.2f}  rule weight {:.2f}".format(dbg["evidence_scale"],
+                                                             dbg["rule_weight"]))
+    describe(codes, match, dbg)
+    return codes
+
+
+def method_v3_notags():
+    return method_v3(use_tags=False)
+
+
+def method_v4(use_tags=True):
+    """v4: v2 pipeline on feature version 2 (touch detection + slowdown), IDSSE nested CV."""
+    from possession import io_atd, io_tagging, v4
+    match = io_atd.load_match()
+    tags = io_tagging.load() if use_tags else None
+    codes, dbg = v4.predict(match, tags, use_tags=use_tags, return_debug=True)
+    print("evidence scale {:.2f}".format(dbg["evidence_scale"]))
+    describe(codes, match, dbg)
+    return codes
+
+
+def method_v4_notags():
+    return method_v4(use_tags=False)
+
+
 def describe(codes, match, dbg):
     """Ground-truth-free plausibility summary of a prediction (aggregates only)."""
     import numpy as np
@@ -80,8 +111,12 @@ METHODS = {
     "v1_notags": method_v1_notags,
     "v2": method_v2,
     "v2_notags": method_v2_notags,
+    "v3": method_v3,
+    "v3_notags": method_v3_notags,
+    "v4": method_v4,
+    "v4_notags": method_v4_notags,
 }
-DEFAULT_METHOD = "v2"
+DEFAULT_METHOD = "v4"
 
 
 def main():

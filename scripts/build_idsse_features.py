@@ -31,9 +31,9 @@ def degrader_params(refit=False):
     return params
 
 
-def _one(mid, params, offset, swapped):
+def _one(mid, params, offset, swapped, version=features.FEATURE_VERSION):
     t = time.time()
-    X, y, g, names = model.copy_features(mid, params, offset, swapped, features.FEATURE_VERSION)
+    X, y, g, names = model.copy_features(mid, params, offset, swapped, version)
     return mid, offset, swapped, X.shape, time.time() - t
 
 
@@ -41,6 +41,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--jobs", type=int, default=7)
     ap.add_argument("--refit", action="store_true")
+    ap.add_argument("--feature-version", type=int, default=features.FEATURE_VERSION)
     args = ap.parse_args()
     params = degrader_params(args.refit)
     print("degrader: h_live {h_live:.2e} h_dead {h_dead:.2e} beta {beta} smooth players "
@@ -50,7 +51,7 @@ def main():
     jobs = [(mid, off, sw) for mid in io_idsse.MATCH_IDS
             for off, sw in model.TRAIN_COPIES + (model.EVAL_COPY,)]
     out = Parallel(n_jobs=args.jobs, verbose=0)(
-        delayed(_one)(mid, params, off, sw) for mid, off, sw in jobs)
+        delayed(_one)(mid, params, off, sw, args.feature_version) for mid, off, sw in jobs)
     for mid, off, sw, shape, sec in out:
         print("{} copy {}{}  X {}  {:.0f}s".format(mid, off, "s" if sw else " ", shape, sec))
 

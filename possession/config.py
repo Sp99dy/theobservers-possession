@@ -31,6 +31,8 @@ SUBMISSION_NAME = "TheObservers.csv"
 # IDSSE / DFL open data (public, CC-BY 4.0): raw XML downloaded by scripts/download_idsse.py.
 # Kept outside the repo only because of its size (several GB).
 IDSSE_DIR = os.environ.get("IDSSE_DIR") or os.path.join(os.path.dirname(REPO_DIR), "idsse-data")
+METRICA_DIR = os.environ.get("METRICA_DIR") or os.path.join(os.path.dirname(REPO_DIR),
+                                                          "metrica-sample-data")
 
 # Label convention bridge, DFL -> challenge [F]. DFL's BallPossession flips on every touch
 # (pooled over 7 matches: 4.6 possessions/min, median 3.7 s, 37% shorter than 2 s). The challenge

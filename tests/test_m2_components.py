@@ -74,3 +74,58 @@ def test_smooth_positions_keeps_gaps():
     xy[4] = np.nan
     sm = degrade.smooth_positions(xy, 3)
     assert np.isnan(sm[4]).all() and not np.isnan(sm[3]).any()
+
+
+# --- M3 -------------------------------------------------------------------------------------
+
+def test_split_d_decoder_equals_three_state_when_restart_costs_equal():
+    from possession import cv
+    rng = np.random.default_rng(3)
+    T = 3000
+    truth = np.repeat(rng.integers(0, 3, 40), T // 40)
+    ll = rng.normal(0, 1.5, (T, 3))
+    ll[np.arange(T), truth] += 1.0
+    blocks = [(0, 1700), (1800, T)]
+    dp = dict(cv.DEFAULT_DECODER)
+    split = {k: v for k, v in dp.items() if k != "leave_d"}
+    split.update(leave_same=dp["leave_d"], leave_other=dp["leave_d"])
+    a = cv.decode_ll(ll, blocks, dp, fill=3)
+    b = cv.decode_ll(ll, blocks, split, fill=3)
+    assert np.array_equal(a, b)
+    assert set(np.unique(b[1700:1800])) == {3}
+
+
+def test_split_d_decoder_follows_restart_preference():
+    from possession import cv
+    # H ... ambiguous D ... ambiguous team evidence: a cheap same-team restart keeps H.
+    T = 600
+    ll = np.zeros((T, 3))
+    ll[:200, 0] = 2.0
+    ll[200:350, 2] = 2.0
+    ll[350:, 2] = -1.0                             # live again, but no evidence for either team
+    dp = dict(cv.DEFAULT_DECODER)
+    dp.pop("leave_d")
+    dp.update(leave_same=0.5, leave_other=6.0)
+    out = cv.decode_ll(ll, [(0, T)], dp, fill=3)
+    assert out[100] == 0 and out[300] == 2 and out[500] == 0
+    dp.update(leave_same=6.0, leave_other=0.5)
+    out = cv.decode_ll(ll, [(0, T)], dp, fill=3)
+    assert out[500] == 1
+
+
+def test_metrica_event_labels():
+    import pandas as pd
+    from possession import io_metrica
+    ev = pd.DataFrame({
+        "Team": ["Home", "Home", "Away", "Away", "Away", "Home", "Home"],
+        "Type": ["SET PIECE", "PASS", "RECOVERY", "PASS", "BALL OUT", "SET PIECE", "PASS"],
+        "Subtype": ["KICK OFF", None, None, None, None, "THROW IN", None],
+        "Period": [1] * 7,
+        "Start Frame": [1, 2, 100, 150, 300, 500, 520],
+        "End Frame": [0, 60, 100, 200, 310, 501, 600],
+    })
+    lab, half = io_metrica.event_labels(ev, 700)
+    assert half[0] == 1 and half[599] == 1 and half[600] == 0
+    assert lab[50] == 0 and lab[120] == 1          # home, then away after the recovery
+    assert (lab[309:499] == 2).all()               # ball out (end frame 310) until the throw-in
+    assert lab[505] == 0 and lab[650] == 3

@@ -79,3 +79,33 @@ def test_v2_is_deterministic_and_graded_only():
     second = v2.predict(io_atd.load_match(), io_tagging.load())
     assert write.render(first) == write.render(second)
     assert (first[~m.graded] == X).all() and (first[m.graded] != X).all()
+
+
+@requires_data
+def test_v3_is_deterministic_and_graded_only():
+    import os
+    import pytest
+    from possession import io_tagging, v3
+    from possession.canonical import X
+    if not os.path.exists(v3.MODEL_PATH):
+        pytest.skip("models/emission_v3.joblib not trained yet")
+    m = io_atd.load_match()
+    first = v3.predict(m, io_tagging.load())
+    second = v3.predict(io_atd.load_match(), io_tagging.load())
+    assert write.render(first) == write.render(second)
+    assert (first[~m.graded] == X).all() and (first[m.graded] != X).all()
+
+
+@requires_data
+def test_v4_is_deterministic_and_graded_only():
+    import os
+    import pytest
+    from possession import io_tagging, v4
+    from possession.canonical import X
+    if not os.path.exists(v4.MODEL_PATH):
+        pytest.skip("models/emission_v4.joblib not trained yet")
+    m = io_atd.load_match()
+    first = v4.predict(m, io_tagging.load())
+    second = v4.predict(io_atd.load_match(), io_tagging.load())
+    assert write.render(first) == write.render(second)
+    assert (first[~m.graded] == X).all() and (first[m.graded] != X).all()

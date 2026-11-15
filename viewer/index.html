@@ -1,0 +1,760 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Possession Match Viewer</title>
+<!-- Local-only tool. Served by scripts/viewer_serve.py on 127.0.0.1; never publish it with data. -->
+<style>
+:root {
+  --bg: #f5f6f8; --panel: #ffffff; --ink: #16181d; --muted: #646b78; --line: #dde1e7;
+  --home: #2456c9; --away: #d0342c; --dead: #9aa1ad; --none: #eceef2;
+  --ok: #1f9d55; --bad: #d0342c; --accent: #6b4fd8;
+  --pitch: #2f7d46; --pitch-line: rgba(255,255,255,.75); --ball: #ffd23f;
+  --shadow: 0 1px 2px rgba(0,0,0,.06), 0 2px 8px rgba(0,0,0,.04);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1115; --panel: #181b21; --ink: #e8eaee; --muted: #9098a6; --line: #2a2f38;
+    --home: #5b8cff; --away: #ff6b5e; --dead: #6c7380; --none: #22262e;
+    --ok: #3ccf7f; --bad: #ff6b5e; --accent: #a08bff; --pitch: #1f5a33; --shadow: none;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1115; --panel: #181b21; --ink: #e8eaee; --muted: #9098a6; --line: #2a2f38;
+  --home: #5b8cff; --away: #ff6b5e; --dead: #6c7380; --none: #22262e;
+  --ok: #3ccf7f; --bad: #ff6b5e; --accent: #a08bff; --pitch: #1f5a33; --shadow: none;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink);
+  font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 12px 16px;
+  border-bottom: 1px solid var(--line); background: var(--panel); position: sticky; top: 0; z-index: 5; }
+header h1 { font-size: 16px; margin: 0 8px 0 0; font-weight: 650; }
+header .sp { flex: 1; }
+select, button, input[type=number] { font: inherit; color: var(--ink); background: var(--panel);
+  border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; }
+button { cursor: pointer; }
+button:hover { border-color: var(--muted); }
+button.primary { background: var(--accent); color: #fff; border-color: var(--accent); min-width: 72px; }
+.lbl { color: var(--muted); font-size: 12px; }
+main { padding: 16px; display: grid; gap: 16px; max-width: 1600px; margin: 0 auto; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  box-shadow: var(--shadow); padding: 12px; min-width: 0; }
+.card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted);
+  margin: 0 0 8px; font-weight: 600; }
+.top { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr) 300px; gap: 16px; }
+@media (max-width: 1200px) { .top { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .now { grid-column: 1 / -1; } }
+@media (max-width: 760px) { .top { grid-template-columns: minmax(0, 1fr); } main { padding: 16px 16px; } }
+canvas { max-width: 100%; }
+.media { position: relative; aspect-ratio: 16 / 9; background: #000; border-radius: 6px; overflow: hidden; }
+video { width: 100%; height: 100%; display: block; }
+.media .msg { position: absolute; inset: 0; display: grid; place-items: center; color: #aab;
+  font-size: 13px; text-align: center; padding: 16px; }
+canvas { display: block; width: 100%; }
+#pitch { aspect-ratio: 105 / 68; border-radius: 6px; }
+.controls { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 10px; }
+.clock { font-variant-numeric: tabular-nums; font-weight: 600; min-width: 132px; }
+.chip { display: inline-block; padding: 2px 8px; border-radius: 999px; color: #fff; font-weight: 600;
+  font-size: 12px; min-width: 64px; text-align: center; }
+.chip.H { background: var(--home); } .chip.A { background: var(--away); }
+.chip.D { background: var(--dead); } .chip.X { background: var(--none); color: var(--muted); }
+.row { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 4px 0;
+  border-bottom: 1px dashed var(--line); }
+.row:last-child { border-bottom: 0; }
+.verdict { font-weight: 700; }
+.verdict.ok { color: var(--ok); } .verdict.bad { color: var(--bad); }
+.bars { display: grid; grid-template-columns: 52px 1fr 40px; gap: 4px 6px; align-items: center;
+  font-size: 12px; margin: 4px 0 8px; }
+.bar { height: 10px; background: var(--none); border-radius: 3px; overflow: hidden; }
+.bar > i { display: block; height: 100%; }
+.sub { font-size: 12px; color: var(--muted); margin-top: 6px; }
+.legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+.legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 2px;
+  margin-right: 5px; vertical-align: -1px; background: var(--c); }
+.tl-wrap { position: relative; }
+#overview, #detail { cursor: crosshair; }
+.bottom { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+.bottom > .wide { grid-column: 1 / -1; }
+@media (max-width: 1000px) { .bottom { grid-template-columns: minmax(0, 1fr); } }
+a { color: var(--accent); }
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; font-variant-numeric: tabular-nums; }
+th, td { padding: 5px 8px; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+th { color: var(--muted); font-weight: 600; font-size: 12px; }
+tr.sel td { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+tbody tr.click { cursor: pointer; }
+tbody tr.click:hover td { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+.dots i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-left: 3px;
+  background: var(--none); border: 1px solid var(--line); }
+.dots i.on { background: var(--ok); border-color: var(--ok); }
+.tm { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; }
+.note { font-size: 12px; color: var(--muted); }
+details summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+kbd { font: 11px ui-monospace, monospace; border: 1px solid var(--line); border-bottom-width: 2px;
+  border-radius: 4px; padding: 0 4px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Possession viewer</h1>
+  <span class="lbl">Data</span><select id="dataSel"></select>
+  <span class="lbl">Our answer</span><select id="methodSel"></select>
+  <span class="lbl">vs</span><select id="otherSel"></select>
+  <span class="sp"></span>
+  <span class="note" id="status">loading…</span>
+</header>
+<main>
+  <section class="top">
+    <div class="card">
+      <h2>Tactical video</h2>
+      <div class="media"><video id="video" muted playsinline preload="auto"></video>
+        <div class="msg" id="videoMsg"></div></div>
+      <div class="controls">
+        <button class="primary" id="play">▶ Play</button>
+        <button id="back5" title="Back 5 s (J)">−5s</button>
+        <button id="back1" title="Back 1 frame (←)">−1f</button>
+        <button id="fwd1" title="Forward 1 frame (→)">+1f</button>
+        <button id="fwd5" title="Forward 5 s (L)">+5s</button>
+        <select id="speed"><option>0.25</option><option>0.5</option><option selected>1</option>
+          <option>2</option><option>4</option></select>
+        <span class="clock" id="clock">0:00.00</span>
+      </div>
+      <div class="controls">
+        <button id="prevT" title="Previous true transition ([)">⟨ truth change</button>
+        <button id="nextT" title="Next true transition (])">truth change ⟩</button>
+        <button id="nextErr" title="Next frame where our answer is wrong (E)">next mistake ⟩</button>
+        <span class="lbl" title="Shift the video if it is not in step with the tracking">video offset (frames)</span>
+        <input type="number" id="offset" value="0" step="1" style="width:64px">
+      </div>
+    </div>
+    <div class="card">
+      <h2>Tracking (what the model sees)</h2>
+      <canvas id="pitch"></canvas>
+      <div class="legend" style="margin-top:8px">
+        <span style="--c:var(--home)">Home (Barcelona)</span>
+        <span style="--c:var(--away)">Away (Athletic)</span>
+        <span style="--c:var(--ball)">Ball (trail = last 1 s)</span>
+      </div>
+      <div class="note">Dashed lines: nearest home and away player to the ball, the strongest single input
+        to the classifier. Dotted rings: the 4 players nearest the ball (near-ball speed group). A coloured
+        burst at the ball: a detected touch, in the toucher's team colour.</div>
+    </div>
+    <div class="card now">
+      <h2>This frame</h2>
+      <div class="row"><span>Truth</span><span class="chip" id="nowGt"></span></div>
+      <div class="row"><span>Our answer</span><span class="chip" id="nowPred"></span></div>
+      <div class="row"><span id="otherName">Other</span><span class="chip" id="nowOther"></span></div>
+      <div class="row"><span>Verdict</span><span class="verdict" id="nowVerdict"></span></div>
+      <div class="sub"><span id="clfName">Classifier</span>: P(label | this frame's features)</div>
+      <div class="bars" id="barsClf"></div>
+      <div class="sub">After kickoff + Smart Tagging evidence</div>
+      <div class="bars" id="barsAll"></div>
+      <div class="row"><span>Nearest home / away</span><span id="nowDist"></span></div>
+      <div class="row"><span>Ball</span><span id="nowBall"></span></div>
+      <div class="row"><span>Mean player speed</span><span id="nowSpeed"></span></div>
+      <div class="row"><span>Smart Tagging</span><span id="nowTag" class="note"></span></div>
+      <div class="sub" id="newSigNote">New signals (feature version 2: inputs of v4; v2 doesn't use them)</div>
+      <div class="row"><span>Last / next touch</span><span id="nowTouch"></span></div>
+      <div class="row"><span>Near-ball speed (4 nearest)</span><span id="nowNear"></span></div>
+      <div class="row"><span>Next 3 s: all · near · share slow</span><span id="nowNext"></span></div>
+      <div class="sub">The decoder then picks the most likely <em>sequence</em>: switching team costs
+        evidence, and a possession must last a minimum time, so single-frame flickers are ignored.</div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Timeline — the 5 graded minutes</h2>
+    <div class="legend">
+      <span style="--c:var(--home)">H home ball</span>
+      <span style="--c:var(--away)">A away ball</span>
+      <span style="--c:var(--dead)">D dead ball</span>
+      <span style="--c:var(--bad)">wrong frame</span>
+      <span class="note">Click or drag to seek. Keys: <kbd>Space</kbd> play · <kbd>←/→</kbd> frame ·
+        <kbd>J/L</kbd> 5 s · <kbd>[ ]</kbd> truth change · <kbd>E</kbd> next mistake</span>
+    </div>
+    <canvas id="overview"></canvas>
+    <div class="note">Touches: ball contacts inferred from sudden changes in ball velocity with a player
+      within 3 m (bar height = how hard). Speed next 3 s: mean speed over the coming 3 s of the 4 players
+      nearest the ball (dark line) and of all players (grey); dashed = walking pace (2 m/s); shaded = the
+      near-ball group will walk, which is what a stoppage looks like.</div>
+    <h2 style="margin-top:14px">Zoom: ±15 s around the playhead — possession matching</h2>
+    <canvas id="detail"></canvas>
+    <div class="note">Boxes are possessions (H/A runs). A predicted box matches a true one if they are the
+      same team and their time IoU ≥ the threshold; spellF1 averages the F1 over thresholds 0.3–0.7.
+      Green links: matched at 0.5; the number is the IoU.</div>
+  </section>
+
+  <section class="bottom">
+    <div class="card wide">
+      <h2>Score on the public window</h2>
+      <div class="scroll"><table id="scoreTbl"></table></div>
+      <details style="margin-top:8px"><summary>What these numbers mean</summary>
+        <p class="note">spellF1 (ranking metric): possessions as objects, matched by time IoU, F1 averaged
+          over IoU 0.3–0.7. macroF1: frame-exact per-class F1 for H/A/D. Possessions: number of H/A runs,
+          and their mean length. The public window is only 5 minutes (≈17 possessions), so one possession
+          more or less moves spellF1 a lot; we never tune on it.</p></details>
+    </div>
+    <div class="card wide">
+      <h2>True possessions — how our answer matched each</h2>
+      <div class="scroll"><table id="spellTbl"></table></div>
+      <div class="note" id="spurious"></div>
+    </div>
+  </section>
+</main>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const IOUS = ["0.3", "0.4", "0.5", "0.6", "0.7"];
+const NAME = { H: "Home", A: "Away", D: "Dead", X: "—" };
+let D = null, F = 0, playing = false, lastTs = 0, offset = 0, dragging = null;
+let method = null, other = null, gtTrans = [];
+let C = {};
+
+function readColors() {
+  C = { H: css("--home"), A: css("--away"), D: css("--dead"), X: css("--none"), ok: css("--ok"),
+        bad: css("--bad"), ink: css("--ink"), muted: css("--muted"), line: css("--line"),
+        pitch: css("--pitch"), pline: css("--pitch-line"), ball: css("--ball"), accent: css("--accent"),
+        panel: css("--panel") };
+}
+
+function fmt(f) {
+  const s = f / D.fps, m = Math.floor(s / 60);
+  return m + ":" + (s - 60 * m).toFixed(2).padStart(5, "0");
+}
+
+// ---------------- data loading ----------------
+async function init() {
+  readColors();
+  let names = [];
+  try { names = await (await fetch("data/")).json(); } catch (e) { /* static open */ }
+  if (!names.length) names = ["match", "demo"];
+  const want = new URLSearchParams(location.search).get("data");
+  names.sort((a, b) => (a === "match" ? -1 : b === "match" ? 1 : 0));
+  $("dataSel").innerHTML = names.map((n) => `<option ${n === want ? "selected" : ""}>${n}</option>`).join("");
+  $("dataSel").onchange = () => load($("dataSel").value);
+  await load($("dataSel").value);
+}
+
+async function load(name) {
+  $("status").textContent = "loading " + name + "…";
+  try {
+    const r = await fetch("data/" + name + ".json");
+    if (!r.ok) throw new Error(r.status + " " + r.statusText);
+    D = await r.json();
+  } catch (e) {
+    $("status").textContent = "could not load data/" + name + ".json — run scripts/viewer_export.py (" + e.message + ")";
+    return;
+  }
+  F = 0;
+  gtTrans = [];
+  for (let i = 1; i < D.n; i++) if (D.gt[i] !== D.gt[i - 1]) gtTrans.push(i);
+  const opts = D.methods.map((m, i) => `<option value="${i}">${m.name}</option>`).join("");
+  $("methodSel").innerHTML = opts;
+  $("otherSel").innerHTML = opts;
+  const iv2 = D.methods.findIndex((m, i) => i > 0 && m.name.startsWith("v2"));
+  $("otherSel").value = iv2 > 0 ? String(iv2) : D.methods.length > 1 ? String(D.methods.length - 1) : "0";
+  method = D.methods[0]; other = D.methods[+$("otherSel").value];
+  const mm = D.main_method || D.methods[0].name;
+  $("clfName").textContent = `${mm} classifier`;
+  $("newSigNote").textContent = D.main_feature_version === 2
+    ? `New signals (feature version 2: ${mm} uses them; v2 doesn't)`
+    : "New signals (feature version 2: not used by the model shown)";
+  $("methodSel").onchange = () => { method = D.methods[+$("methodSel").value]; renderTables(); drawAll(); };
+  $("otherSel").onchange = () => { other = D.methods[+$("otherSel").value]; drawAll(); };
+  setupVideo();
+  renderTables();
+  $("status").textContent = `${D.match} · frames ${D.first_frame}–${D.first_frame + D.n - 1} · ` +
+    `${D.gt_spells.length} true possessions` + (D.kind === "demo" ? " · SYNTHETIC DEMO" : "");
+  resize();
+}
+
+// ---------------- video sync ----------------
+function setupVideo() {
+  const v = $("video");
+  v.pause(); playing = false; $("play").textContent = "▶ Play";
+  if (D.kind !== "real") {
+    v.removeAttribute("src"); v.load();
+    $("videoMsg").textContent = "Demo data has no video. Playback runs off the tracking clock.";
+    return;
+  }
+  $("videoMsg").textContent = "loading video…";
+  v.src = "video";
+  v.onloadedmetadata = () => { $("videoMsg").textContent = ""; seek(F); };
+  v.onerror = () => { $("videoMsg").textContent = "Video could not be played here (codec or path). " +
+    "Tracking playback still works; try opening this page in Chrome."; };
+}
+const videoOk = () => D.kind === "real" && $("video").readyState >= 1 && !$("video").error;
+const vTime = (f) => (D.first_frame + f + offset) / D.fps;
+
+function seek(f, fromVideo) {
+  F = Math.max(0, Math.min(D.n - 1, Math.round(f)));
+  if (!fromVideo && videoOk()) $("video").currentTime = vTime(F) + 0.5 / D.fps;
+  drawAll();
+}
+
+function togglePlay() {
+  playing = !playing;
+  $("play").textContent = playing ? "❚❚ Pause" : "▶ Play";
+  const v = $("video");
+  if (videoOk()) {
+    v.playbackRate = +$("speed").value;
+    playing ? v.play().catch(() => {}) : v.pause();
+  }
+  lastTs = performance.now();
+  clearInterval(timer);
+  // A timer, not requestAnimationFrame: rAF stops whenever the page is in the background.
+  if (playing) timer = setInterval(tick, 1000 / D.fps);
+}
+let timer = null;
+
+function tick() {
+  if (!playing) return;
+  const ts = performance.now();
+  if (videoOk()) {
+    const f = Math.floor($("video").currentTime * D.fps + 1e-3) - D.first_frame - offset;
+    if (f !== F) seek(f, true);
+  } else {
+    const adv = (ts - lastTs) / 1000 * D.fps * +$("speed").value;
+    if (adv >= 1) { seek(F + Math.floor(adv), true); lastTs = ts; }
+  }
+  if (F >= D.n - 1) togglePlay();
+}
+
+// ---------------- pitch ----------------
+function drawPitch() {
+  const cv = $("pitch"), ctx = cv.getContext("2d");
+  const W = cv.width, H = cv.height, [L, Wd] = D.pitch;
+  const pad = 0.04 * W, sx = (W - 2 * pad) / L, sy = (H - 2 * pad) / Wd;
+  const X = (x) => pad + (x + L / 2) * sx, Y = (y) => pad + (Wd / 2 - y) * sy;
+  ctx.fillStyle = C.pitch; ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = C.pline; ctx.lineWidth = Math.max(1, W / 500);
+  ctx.strokeRect(X(-L / 2), Y(Wd / 2), L * sx, Wd * sy);
+  ctx.beginPath(); ctx.moveTo(X(0), Y(Wd / 2)); ctx.lineTo(X(0), Y(-Wd / 2)); ctx.stroke();
+  ctx.beginPath(); ctx.arc(X(0), Y(0), 9.15 * sx, 0, 2 * Math.PI); ctx.stroke();
+  for (const s of [-1, 1]) {
+    ctx.strokeRect(X(s * L / 2 - (s > 0 ? 16.5 : 0)), Y(20.16), 16.5 * sx, 40.32 * sy);
+    ctx.strokeRect(X(s * L / 2 - (s > 0 ? 5.5 : 0)), Y(9.16), 5.5 * sx, 18.32 * sy);
+  }
+  const P = D.players[F], b = D.ball[F], r = Math.max(4, W / 95);
+  // ball trail
+  ctx.strokeStyle = C.ball; ctx.globalAlpha = 0.5; ctx.lineWidth = r / 2.5; ctx.beginPath();
+  let started = false;
+  for (let k = Math.max(0, F - D.fps); k <= F; k++) {
+    const q = D.ball[k];
+    if (!q || q[0] == null) { started = false; continue; }
+    started ? ctx.lineTo(X(q[0]), Y(q[1])) : ctx.moveTo(X(q[0]), Y(q[1])); started = true;
+  }
+  ctx.stroke(); ctx.globalAlpha = 1;
+  // nearest player lines
+  if (b && b[0] != null) {
+    for (const team of [0, 1]) {
+      let best = null, bd = 1e9;
+      P.forEach((p, s) => {
+        if (!p || p[0] == null || D.team_of_slot[s] !== team) return;
+        const d = Math.hypot(p[0] - b[0], p[1] - b[1]);
+        if (d < bd) { bd = d; best = p; }
+      });
+      if (best) {
+        ctx.setLineDash([5, 4]); ctx.strokeStyle = team ? C.A : C.H; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(X(b[0]), Y(b[1])); ctx.lineTo(X(best[0]), Y(best[1])); ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    }
+  }
+  // the K players nearest the ball (or where it was last seen): the "near-ball speed" group
+  const ref = lastBall(F);
+  if (ref && D.near_k) {
+    const near = P.map((p, s) => [p && p[0] != null ? Math.hypot(p[0] - ref[0], p[1] - ref[1]) : 1e9, s])
+      .sort((a, b) => a[0] - b[0]).slice(0, D.near_k);
+    ctx.strokeStyle = C.ink; ctx.lineWidth = 1.5; ctx.setLineDash([2, 2]);
+    for (const [, s] of near) {
+      const p = P[s]; if (!p || p[0] == null) continue;
+      ctx.beginPath(); ctx.arc(X(p[0]), Y(p[1]), r * 1.9, 0, 2 * Math.PI); ctx.stroke();
+    }
+    ctx.setLineDash([]);
+  }
+  // detected touch in the last 0.5 s: burst at the ball, team colour
+  const tch = (D.touches || []).filter(([t]) => t <= F && F - t < D.fps / 2).pop();
+  if (tch && b && b[0] != null) {
+    const a = 1 - (F - tch[0]) / (D.fps / 2);
+    ctx.strokeStyle = tch[1] ? C.A : C.H; ctx.lineWidth = 3; ctx.globalAlpha = a;
+    ctx.beginPath(); ctx.arc(X(b[0]), Y(b[1]), r * (1.5 + 2.5 * (1 - a)), 0, 2 * Math.PI); ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+  P.forEach((p, s) => {
+    if (!p || p[0] == null) return;
+    ctx.fillStyle = D.team_of_slot[s] ? C.A : C.H;
+    ctx.beginPath(); ctx.arc(X(p[0]), Y(p[1]), r, 0, 2 * Math.PI); ctx.fill();
+    ctx.strokeStyle = "rgba(255,255,255,.85)"; ctx.lineWidth = 1.2; ctx.stroke();
+  });
+  if (b && b[0] != null) {
+    ctx.fillStyle = C.ball; ctx.strokeStyle = "#000"; ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.arc(X(b[0]), Y(b[1]), r * 0.7, 0, 2 * Math.PI); ctx.fill(); ctx.stroke();
+  } else {
+    ctx.fillStyle = "rgba(0,0,0,.55)"; ctx.fillRect(8, 8, 150, 24);
+    ctx.fillStyle = "#fff"; ctx.font = "12px system-ui"; ctx.fillText("ball not tracked", 16, 24);
+  }
+  // label banner: truth vs ours
+  const g = D.gt[F], m = method.labels[F];
+  ctx.font = `600 ${Math.max(11, W / 45)}px system-ui`;
+  const txt = `truth ${g}  ·  ours ${m}`, tw = ctx.measureText(txt).width;
+  ctx.fillStyle = "rgba(0,0,0,.55)"; ctx.fillRect(W - tw - 24, 8, tw + 16, Math.max(22, W / 30));
+  ctx.fillStyle = g === m ? "#9ff0bf" : "#ffb3ad"; ctx.fillText(txt, W - tw - 16, 8 + Math.max(16, W / 42));
+}
+
+function lastBall(f) {
+  for (let k = f; k >= 0 && k > f - 30 * D.fps; k--) { const q = D.ball[k]; if (q && q[0] != null) return q; }
+  return null;
+}
+
+// ---------------- timelines ----------------
+function touchLane(ctx, x0, x1, fa, fb, y, h) {
+  if (!D.touches) return;
+  const sx = (x1 - x0) / (fb - fa), wide = sx > 1.5;
+  for (const [t, team, dv] of D.touches) {
+    if (t < fa || t >= fb) continue;
+    ctx.fillStyle = team ? C.A : C.H;
+    const hh = Math.min(1, 0.35 + dv / 15) * h;
+    ctx.fillRect(x0 + (t - fa) * sx - (wide ? 1.5 : 0.5), y + h - hh, wide ? 3 : 1.5, hh);
+  }
+}
+function speedLane(ctx, x0, x1, fa, fb, y, h) {
+  const S = D.speed; if (!S) return;
+  const vmax = 6, w = x1 - x0, step = (fb - fa) / w, Y = (v) => y + h - Math.min(v, vmax) / vmax * h;
+  const avg = (arr, a, b) => { let s = 0, n = 0; for (let k = a; k < b; k++) if (arr[k] != null) { s += arr[k]; n++; } return n ? s / n : null; };
+  // shade where the near-ball group will be at walking pace for the next 3 s
+  ctx.fillStyle = C.D; ctx.globalAlpha = 0.35;
+  for (let px = 0; px < w; px++) {
+    const a = Math.floor(fa + px * step), b = Math.max(a + 1, Math.floor(fa + (px + 1) * step));
+    const v = avg(S.near_next3, a, Math.min(b, fb));
+    if (v != null && v < D.slow_walk) ctx.fillRect(x0 + px, y, 1.2, h);
+  }
+  ctx.globalAlpha = 1;
+  ctx.setLineDash([3, 3]); ctx.strokeStyle = C.muted; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(x0, Y(D.slow_walk)); ctx.lineTo(x1, Y(D.slow_walk)); ctx.stroke(); ctx.setLineDash([]);
+  for (const [key, col, lw] of [["all_next3", C.muted, 1.2], ["near_next3", C.ink, 1.6]]) {
+    ctx.strokeStyle = col; ctx.lineWidth = lw; ctx.beginPath(); let on = false;
+    for (let px = 0; px < w; px++) {
+      const a = Math.floor(fa + px * step), b = Math.max(a + 1, Math.floor(fa + (px + 1) * step));
+      const v = avg(S[key], a, Math.min(b, fb));
+      if (v == null) { on = false; continue; }
+      on ? ctx.lineTo(x0 + px, Y(v)) : ctx.moveTo(x0 + px, Y(v)); on = true;
+    }
+    ctx.stroke();
+  }
+}
+function lanes(ctx, x0, x1, fa, fb, y, h, str) {
+  // run-length draw labels str over frames [fa, fb)
+  const sx = (x1 - x0) / (fb - fa);
+  let s = fa;
+  for (let i = fa + 1; i <= fb; i++) {
+    if (i === fb || str[i] !== str[s]) {
+      ctx.fillStyle = C[str[s]] || C.X;
+      ctx.fillRect(x0 + (s - fa) * sx, y, Math.max(1, (i - s) * sx), h);
+      s = i;
+    }
+  }
+}
+function errLane(ctx, x0, x1, fa, fb, y, h, a, b) {
+  const sx = (x1 - x0) / (fb - fa);
+  ctx.fillStyle = C.bad;
+  let s = -1;
+  for (let i = fa; i <= fb; i++) {
+    const wrong = i < fb && a[i] !== b[i];
+    if (wrong && s < 0) s = i;
+    if (!wrong && s >= 0) { ctx.fillRect(x0 + (s - fa) * sx, y, Math.max(1, (i - s) * sx), h); s = -1; }
+  }
+}
+function probLane(ctx, x0, x1, fa, fb, y, h, P) {
+  const w = x1 - x0, step = (fb - fa) / w;
+  for (let px = 0; px < w; px++) {
+    const a = Math.floor(fa + px * step), b = Math.max(a + 1, Math.floor(fa + (px + 1) * step));
+    let ph = 0, pa = 0, pd = 0, n = 0;
+    for (let k = a; k < b && k < fb; k++) { const p = P[k]; ph += p[0]; pa += p[1]; pd += p[2]; n++; }
+    if (!n) continue;
+    ph /= n; pa /= n; pd /= n;
+    let yy = y;
+    for (const [v, c] of [[ph, C.H], [pd, C.D], [pa, C.A]]) {
+      ctx.fillStyle = c; ctx.fillRect(x0 + px, yy, 1.2, v * h); yy += v * h;
+    }
+  }
+}
+function ballLane(ctx, x0, x1, fa, fb, y, h) {
+  const sx = (x1 - x0) / (fb - fa);
+  ctx.fillStyle = C.muted;
+  let s = -1;
+  for (let i = fa; i <= fb; i++) {
+    const miss = i < fb && (!D.ball[i] || D.ball[i][0] == null);
+    if (miss && s < 0) s = i;
+    if (!miss && s >= 0) { ctx.fillRect(x0 + (s - fa) * sx, y + h * 0.3, Math.max(1, (i - s) * sx), h * 0.4); s = -1; }
+  }
+}
+function tagLane(ctx, x0, x1, fa, fb, y, h) {
+  const sx = (x1 - x0) / (fb - fa);
+  for (const [s, e, code, team] of D.tags) {
+    if (e <= fa || s >= fb) continue;
+    ctx.fillStyle = team === 0 ? C.H : team === 1 ? C.A : C.D;
+    ctx.globalAlpha = 0.45;
+    ctx.fillRect(x0 + (Math.max(s, fa) - fa) * sx, y + 2, (Math.min(e, fb) - Math.max(s, fa)) * sx, h - 4);
+    ctx.globalAlpha = 1;
+  }
+  ctx.fillStyle = C.ink;
+  for (const [s, e] of D.kickoffs) {
+    if (e < fa || e > fb) continue;
+    ctx.beginPath(); const x = x0 + (e - fa) * sx;
+    ctx.moveTo(x, y); ctx.lineTo(x - 5, y + h); ctx.lineTo(x + 5, y + h); ctx.fill();
+  }
+}
+
+const LANE_DEF = () => [
+  ["Truth", (c, a, b, x0, x1, y, h) => lanes(c, x0, x1, a, b, y, h, D.gt)],
+  [method.name, (c, a, b, x0, x1, y, h) => lanes(c, x0, x1, a, b, y, h, method.labels)],
+  ["  ✗ wrong", (c, a, b, x0, x1, y, h) => errLane(c, x0, x1, a, b, y, h, D.gt, method.labels), 8],
+  [other.name, (c, a, b, x0, x1, y, h) => lanes(c, x0, x1, a, b, y, h, other.labels)],
+  ["P classifier", (c, a, b, x0, x1, y, h) => probLane(c, x0, x1, a, b, y, h, D.p_clf), 26],
+  ["P + layers", (c, a, b, x0, x1, y, h) => probLane(c, x0, x1, a, b, y, h, D.p_all), 26],
+  ["Ball missing", (c, a, b, x0, x1, y, h) => ballLane(c, x0, x1, a, b, y, h), 10],
+  ["Touches", (c, a, b, x0, x1, y, h) => touchLane(c, x0, x1, a, b, y, h), 14],
+  ["Speed next 3 s", (c, a, b, x0, x1, y, h) => speedLane(c, x0, x1, a, b, y, h), 30],
+  ["Tags / kickoff", (c, a, b, x0, x1, y, h) => tagLane(c, x0, x1, a, b, y, h), 14],
+];
+
+function drawOverview() {
+  const cv = $("overview"), ctx = cv.getContext("2d"), dpr = devicePixelRatio || 1;
+  const W = cv.width / dpr, gutter = 104, lh = 16, gap = 5;
+  const defs = LANE_DEF();
+  const H = defs.reduce((s, d) => s + (d[2] || lh) + gap, 0) + 20;
+  if (Math.abs(cv.height - H * dpr) > 1) { cv.height = H * dpr; cv.style.height = H + "px"; }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  ctx.font = "12px system-ui"; ctx.textBaseline = "middle";
+  let y = 0;
+  for (const [name, fn, hh] of defs) {
+    const h = hh || lh;
+    ctx.fillStyle = C.muted; ctx.fillText(name.length > 15 ? name.slice(0, 14) + "…" : name, 0, y + h / 2);
+    ctx.fillStyle = C.X; ctx.fillRect(gutter, y, W - gutter, h);
+    fn(ctx, 0, D.n, gutter, W, y, h);
+    y += h + gap;
+  }
+  // time ticks
+  ctx.fillStyle = C.muted; ctx.textBaseline = "top";
+  for (let s = 0; s * D.fps <= D.n; s += 30) {
+    const x = gutter + (s * D.fps / D.n) * (W - gutter);
+    ctx.fillRect(x, y, 1, 4); ctx.fillText(fmt(s * D.fps).replace(/\.00$/, ""), x + 2, y + 4);
+  }
+  // detail window + playhead
+  const x = gutter + (F / D.n) * (W - gutter), half = 15 * D.fps * (W - gutter) / D.n;
+  ctx.fillStyle = C.accent; ctx.globalAlpha = 0.12; ctx.fillRect(x - half, 0, 2 * half, y); ctx.globalAlpha = 1;
+  ctx.fillRect(x - 1, 0, 2, y);
+  cv._map = (px) => (px - gutter) / (W - gutter) * D.n;
+}
+
+function drawDetail() {
+  const cv = $("detail"), ctx = cv.getContext("2d"), dpr = devicePixelRatio || 1;
+  const W = cv.width / dpr, gutter = 104, span = 15 * D.fps;
+  const fa = F - span, fb = F + span, sx = (W - gutter) / (fb - fa);
+  const X = (f) => gutter + (f - fa) * sx;
+  const H = 300;
+  if (Math.abs(cv.height - H * dpr) > 1) { cv.height = H * dpr; cv.style.height = H + "px"; }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  ctx.font = "12px system-ui"; ctx.textBaseline = "middle";
+  const lo = Math.max(0, fa), hi = Math.min(D.n, fb);
+  const rows = [["Truth spells", 8], [method.name, 74]];
+  rows.forEach(([n, y]) => { ctx.fillStyle = C.muted; ctx.fillText(n.length > 15 ? n.slice(0, 14) + "…" : n, 0, y + 14); });
+  ctx.fillStyle = C.X; ctx.fillRect(gutter, 8, W - gutter, 28); ctx.fillRect(gutter, 74, W - gutter, 28);
+  lanes(ctx, X(lo), X(hi), lo, hi, 8, 28, D.gt);
+  lanes(ctx, X(lo), X(hi), lo, hi, 74, 28, method.labels);
+  // spell boxes and match links at 0.5
+  const pairs = method.pairs["0.5"] || [];
+  const gtOf = new Map(pairs.map(([g, p, iou]) => [p, [g, iou]]));
+  ctx.lineWidth = 2;
+  D.gt_spells.forEach(([s, e], i) => {
+    if (e < fa || s > fb) return;
+    ctx.strokeStyle = C.ink; ctx.strokeRect(X(s) + 1, 9, (e - s) * sx - 2, 26);
+    ctx.fillStyle = "#fff"; ctx.fillText("#" + (i + 1), Math.max(X(s), gutter) + 5, 22);
+  });
+  method.spells.forEach(([s, e], j) => {
+    if (e < fa || s > fb) return;
+    const m = gtOf.get(j);
+    ctx.strokeStyle = m ? C.ok : C.bad; ctx.setLineDash(m ? [] : [5, 3]);
+    ctx.strokeRect(X(s) + 1, 75, (e - s) * sx - 2, 26); ctx.setLineDash([]);
+    if (m) {
+      const [gs, ge] = D.gt_spells[m[0]];
+      const xa = X((s + e) / 2), xb = X((gs + ge) / 2);
+      ctx.strokeStyle = C.ok; ctx.beginPath(); ctx.moveTo(xb, 36); ctx.lineTo(xa, 74); ctx.stroke();
+      ctx.fillStyle = C.ink; ctx.textAlign = "center";
+      ctx.fillText("IoU " + m[1].toFixed(2), (xa + xb) / 2, 55); ctx.textAlign = "left";
+    } else {
+      ctx.fillStyle = C.bad; ctx.fillText("no match", Math.max(X(s), gutter) + 5, 112);
+    }
+  });
+  // probability lanes
+  ctx.fillStyle = C.muted; ctx.fillText("P classifier", 0, 140); ctx.fillText("P + layers", 0, 176);
+  ctx.fillStyle = C.X; ctx.fillRect(gutter, 124, W - gutter, 32); ctx.fillRect(gutter, 162, W - gutter, 32);
+  probLane(ctx, X(lo), X(hi), lo, hi, 124, 32, D.p_clf);
+  probLane(ctx, X(lo), X(hi), lo, hi, 162, 32, D.p_all);
+  ctx.fillStyle = C.muted; ctx.fillText("Ball missing", 0, 207);
+  ballLane(ctx, X(lo), X(hi), lo, hi, 200, 14);
+  ctx.fillStyle = C.muted; ctx.fillText("Touches", 0, 230); ctx.fillText("Speed next 3 s", 0, 266);
+  ctx.fillStyle = C.X; ctx.fillRect(gutter, 220, W - gutter, 20); ctx.fillRect(gutter, 246, W - gutter, 40);
+  touchLane(ctx, X(lo), X(hi), lo, hi, 220, 20);
+  speedLane(ctx, X(lo), X(hi), lo, hi, 246, 40);
+  // seconds grid + playhead
+  ctx.fillStyle = C.line;
+  for (let f = Math.ceil(fa / (5 * D.fps)) * 5 * D.fps; f <= fb; f += 5 * D.fps) {
+    if (f < 0 || f > D.n) continue;
+    ctx.fillRect(X(f), 0, 1, H - 12);
+    ctx.fillStyle = C.muted; ctx.textBaseline = "top"; ctx.fillText(fmt(f).replace(/\.00$/, ""), X(f) + 2, H - 12);
+    ctx.textBaseline = "middle"; ctx.fillStyle = C.line;
+  }
+  ctx.fillStyle = C.accent; ctx.fillRect(X(F) - 1, 0, 2, H - 12);
+  cv._map = (px) => fa + (px - gutter) / sx;
+}
+
+// ---------------- side panel ----------------
+function bars(el, p) {
+  el.innerHTML = [["Home", p[0], C.H], ["Away", p[1], C.A], ["Dead", p[2], C.D]].map(([n, v, c]) =>
+    `<span>${n}</span><span class="bar"><i style="width:${(100 * v).toFixed(1)}%;background:${c}"></i></span>` +
+    `<span style="text-align:right">${(100 * v).toFixed(0)}%</span>`).join("");
+}
+function chip(el, l) { el.className = "chip " + l; el.textContent = NAME[l] + (l !== "X" ? " (" + l + ")" : ""); }
+function drawNow() {
+  const g = D.gt[F], m = method.labels[F];
+  $("clock").textContent = fmt(F) + "  ·  f" + (D.first_frame + F);
+  chip($("nowGt"), g); chip($("nowPred"), m); chip($("nowOther"), other.labels[F]);
+  $("otherName").textContent = other.name;
+  const v = $("nowVerdict");
+  v.className = "verdict " + (g === m ? "ok" : "bad");
+  v.textContent = g === m ? "✓ correct frame" : "✗ wrong frame";
+  bars($("barsClf"), D.p_clf[F]); bars($("barsAll"), D.p_all[F]);
+  const dh = D.feat.d_home[F], da = D.feat.d_away[F];
+  $("nowDist").textContent = (dh == null ? "–" : dh.toFixed(1) + " m") + " / " + (da == null ? "–" : da.toFixed(1) + " m");
+  const bt = D.ball[F] && D.ball[F][0] != null;
+  $("nowBall").textContent = !bt ? "not tracked" : D.feat.ball_out[F] ? "tracked, out of play" : "tracked, in play";
+  const sp = D.feat.player_speed[F];
+  $("nowSpeed").textContent = sp == null ? "–" : sp.toFixed(2) + " m/s";
+  const t = D.tags.filter(([s, e]) => s <= F && F < e).map(([, , c, team]) =>
+    (team === 0 ? "Home: " : team === 1 ? "Away: " : "") + c);
+  const ko = D.kickoffs.find(([s, e]) => s <= F && F < e + D.fps);
+  $("nowTag").textContent = (ko ? "kickoff line-up · " : "") + (t.join(" · ") || "—");
+  const T = D.touches || [], tm = (k) => (k ? "Away" : "Home");
+  let li = -1; for (let i = 0; i < T.length && T[i][0] <= F; i++) li = i;
+  const last = T[li], next = T[li + 1];
+  $("nowTouch").textContent = (last ? `${tm(last[1])} ${((F - last[0]) / D.fps).toFixed(1)} s ago (Δv ${last[2].toFixed(0)} m/s)` : "–") +
+    "  ·  " + (next ? `${tm(next[1])} in ${((next[0] - F) / D.fps).toFixed(1)} s` : "–");
+  const S = D.speed, f2 = (v) => (v == null ? "–" : v.toFixed(1));
+  if (S) {
+    $("nowNear").textContent = `now ${f2(S.near[F])} · prev 3 s ${f2(S.near_prev3[F])} m/s`;
+    const sh = S.slowshare_next3[F];
+    $("nowNext").textContent = `${f2(S.all_next3[F])} · ${f2(S.near_next3[F])} m/s · ` +
+      (sh == null ? "–" : (100 * sh).toFixed(0) + "%");
+  }
+  document.querySelectorAll("#spellTbl tbody tr").forEach((tr) => {
+    const [s, e] = D.gt_spells[+tr.dataset.i];
+    tr.classList.toggle("sel", s <= F && F < e);
+  });
+}
+
+function renderTables() {
+  const keys = [["spellF1", "spell_f1_mean", 3], ["macroF1", "macro_f1", 3],
+                ["poss.", "n_pred_spells", 0], ["mean s", "mean_spell_duration_s", 1],
+                ["alive F1", "alive_dead_f1", 3], ["team acc", "team_acc_both_alive", 3]];
+  const m0 = D.methods[0].metrics;
+  let h = "<thead><tr><th>method</th>" + keys.map((k) => `<th>${k[0]}</th>`).join("") +
+    IOUS.map((t) => `<th>F1@${t}</th>`).join("") + "</tr></thead><tbody>";
+  h += `<tr><td><b>truth</b></td><td>1.000</td><td>1.000</td><td>${m0.n_gt_spells}</td>` +
+    `<td>${(+m0.gt_mean_spell_duration_s).toFixed(1)}</td><td></td><td></td>` + IOUS.map(() => "<td></td>").join("") + "</tr>";
+  for (const m of D.methods) {
+    h += `<tr${m === method ? ' class="sel"' : ""}><td>${m.name}</td>` +
+      keys.map(([, k, d]) => `<td>${(+m.metrics[k]).toFixed(d)}</td>`).join("") +
+      IOUS.map((t) => `<td>${(m.spell_f1_per_iou[t] ?? 0).toFixed(2)}</td>`).join("") + "</tr>";
+  }
+  $("scoreTbl").innerHTML = h + "</tbody>";
+
+  const hit = IOUS.map((t) => new Set((method.pairs[t] || []).map((p) => p[0])));
+  let s = "<thead><tr><th>#</th><th>team</th><th>start</th><th>length</th><th>best IoU</th>" +
+    "<th>matched at 0.3 … 0.7</th></tr></thead><tbody>";
+  D.gt_spells.forEach(([a, b, c], i) => {
+    const best = method.best_for_gt[String(i)];
+    s += `<tr class="click" data-i="${i}" data-f="${a}"><td>${i + 1}</td>` +
+      `<td><span class="tm" style="background:${c ? C.A : C.H}"></span>${c ? "Away" : "Home"}</td>` +
+      `<td>${fmt(a)}</td><td>${((b - a) / D.fps).toFixed(1)} s</td>` +
+      `<td>${best ? best[1].toFixed(2) : "–"}</td>` +
+      `<td class="dots">${hit.map((st) => `<i class="${st.has(i) ? "on" : ""}"></i>`).join("")}</td></tr>`;
+  });
+  $("spellTbl").innerHTML = s + "</tbody>";
+  $("spellTbl").querySelectorAll("tr.click").forEach((tr) => (tr.onclick = () => seek(+tr.dataset.f)));
+  const used = new Set((method.pairs["0.5"] || []).map((p) => p[1]));
+  const spur = method.spells.map((sp, j) => [sp, j]).filter(([, j]) => !used.has(j));
+  $("spurious").innerHTML = `${method.name}: ${method.spells.length} predicted possessions, ` +
+    `${used.size} matched at IoU 0.5, ${spur.length} unmatched` +
+    (spur.length ? ": " + spur.map(([[a, b, c]]) =>
+      `<a href="#" data-f="${a}">${fmt(a)} ${c ? "A" : "H"} ${((b - a) / D.fps).toFixed(1)}s</a>`).join(", ") : "");
+  $("spurious").querySelectorAll("a").forEach((a) => (a.onclick = (e) => { e.preventDefault(); seek(+a.dataset.f); }));
+}
+
+function drawAll() {
+  if (!D) return;
+  drawPitch(); drawOverview(); drawDetail(); drawNow();
+}
+
+function resize() {
+  if (!D) return;
+  const dpr = devicePixelRatio || 1;
+  for (const id of ["pitch", "overview", "detail"]) {
+    const cv = $(id), w = cv.clientWidth;
+    cv.width = Math.round(w * dpr);
+    if (id === "pitch") cv.height = Math.round(w * 68 / 105 * dpr);
+  }
+  drawAll();
+}
+
+// ---------------- interaction ----------------
+for (const id of ["overview", "detail"]) {
+  const cv = $(id);
+  const go = (ev) => { const r = cv.getBoundingClientRect(); if (cv._map) seek(cv._map(ev.clientX - r.left)); };
+  cv.addEventListener("pointerdown", (ev) => { dragging = id; cv.setPointerCapture(ev.pointerId); go(ev); });
+  cv.addEventListener("pointermove", (ev) => { if (dragging === id) go(ev); });
+  cv.addEventListener("pointerup", () => (dragging = null));
+}
+$("play").onclick = togglePlay;
+$("back5").onclick = () => seek(F - 5 * D.fps);
+$("fwd5").onclick = () => seek(F + 5 * D.fps);
+$("back1").onclick = () => seek(F - 1);
+$("fwd1").onclick = () => seek(F + 1);
+$("speed").onchange = () => { if (videoOk()) $("video").playbackRate = +$("speed").value; };
+$("offset").onchange = () => { offset = +$("offset").value || 0; seek(F); };
+const nextT = () => { const t = gtTrans.find((x) => x > F); if (t != null) seek(t); };
+const prevT = () => { const t = [...gtTrans].reverse().find((x) => x < F); if (t != null) seek(t); };
+const nextErr = () => {
+  let i = F + 1;
+  while (i < D.n && D.gt[i] === method.labels[i]) i++;     // skip to the next wrong frame…
+  if (i < D.n && D.gt[F] !== method.labels[F]) {          // …or past the current wrong stretch
+    i = F; while (i < D.n && D.gt[i] !== method.labels[i]) i++;
+    while (i < D.n && D.gt[i] === method.labels[i]) i++;
+  }
+  if (i < D.n) seek(i);
+};
+$("nextT").onclick = nextT; $("prevT").onclick = prevT; $("nextErr").onclick = nextErr;
+document.addEventListener("keydown", (e) => {
+  if (!D || e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
+  const k = e.key;
+  if (k === " ") { e.preventDefault(); togglePlay(); }
+  else if (k === "ArrowRight") seek(F + (e.shiftKey ? D.fps : 1));
+  else if (k === "ArrowLeft") seek(F - (e.shiftKey ? D.fps : 1));
+  else if (k === "l" || k === "L") seek(F + 5 * D.fps);
+  else if (k === "j" || k === "J") seek(F - 5 * D.fps);
+  else if (k === "]") nextT(); else if (k === "[") prevT();
+  else if (k === "e" || k === "E") nextErr();
+});
+addEventListener("resize", resize);
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { readColors(); drawAll(); });
+init();
+</script>
+</body>
+</html>

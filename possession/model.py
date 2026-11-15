@@ -17,6 +17,8 @@ from .canonical import orient
 # Training copies per match: (degrader seed offset, swapped). [D] two independent corruptions,
 # each with its mirror image.
 TRAIN_COPIES = ((0, False), (0, True), (1, False), (1, True))
+TRAIN_COPIES_X2 = TRAIN_COPIES + ((2, False), (2, True), (3, False), (3, True))   # experiment
+CLEAN_COPIES = ((None, False), (None, True))   # ablation only: no degrader (offset None = clean)
 EVAL_COPY = (9, False)       # [D] a separate corruption, never trained on, for CV scoring
 SUBSAMPLE = 5                # [D] one row per 0.2 s
 HGB_PARAMS = dict(           # [D] conventional settings; early stopping off for determinism
@@ -31,7 +33,7 @@ def copy_seed(match_index, offset):
 def make_copy(match_id, params, offset, swapped):
     idx = io_idsse.MATCH_IDS.index(match_id)
     clean = io_idsse.load_labelled(match_id)
-    deg = degrade.degrade(clean, params, seed=copy_seed(idx, offset))
+    deg = clean if offset is None else degrade.degrade(clean, params, seed=copy_seed(idx, offset))
     if swapped:
         deg = degrade.swap_teams(deg)
     return orient(deg)
@@ -39,7 +41,7 @@ def make_copy(match_id, params, offset, swapped):
 
 def _feature_cache(match_id, offset, swapped, version):
     return os.path.join(config.CACHE_DIR, "idsse_feat_{}_{}{}_v{}.npz".format(
-        match_id, offset, "s" if swapped else "", version))
+        match_id, "clean" if offset is None else offset, "s" if swapped else "", version))
 
 
 def copy_features(match_id, params, offset, swapped, version, use_cache=True):
@@ -49,7 +51,7 @@ def copy_features(match_id, params, offset, swapped, version, use_cache=True):
         with np.load(path, allow_pickle=False) as z:
             return z["X"], z["y"], z["g"], z["names"].tolist()
     m = make_copy(match_id, params, offset, swapped)
-    X, names = features.design_matrix(m)
+    X, names = features.design_matrix(m, version=version)
     os.makedirs(config.CACHE_DIR, exist_ok=True)
     tmp = path + ".tmp.npz"
     np.savez(tmp, X=X, y=m.labels, g=m.graded, names=np.array(names))
@@ -57,10 +59,10 @@ def copy_features(match_id, params, offset, swapped, version, use_cache=True):
     return X, m.labels, m.graded, names
 
 
-def training_rows(match_ids, params, version):
+def training_rows(match_ids, params, version, copies=TRAIN_COPIES):
     Xs, ys = [], []
     for mid in match_ids:
-        for offset, swapped in TRAIN_COPIES:
+        for offset, swapped in copies:
             X, y, g, names = copy_features(mid, params, offset, swapped, version)
             idx = np.flatnonzero(g)[::SUBSAMPLE]
             Xs.append(X[idx])
@@ -68,8 +70,8 @@ def training_rows(match_ids, params, version):
     return np.vstack(Xs), np.concatenate(ys), names
 
 
-def train(X, y, columns=None):
-    clf = HistGradientBoostingClassifier(**HGB_PARAMS)
+def train(X, y, columns=None, **overrides):
+    clf = HistGradientBoostingClassifier(**dict(HGB_PARAMS, **overrides))
     clf.fit(X if columns is None else X[:, columns], y)
     prior = np.bincount(y, minlength=3)[:3] / len(y)
     return {"clf": clf, "prior": prior, "columns": columns}

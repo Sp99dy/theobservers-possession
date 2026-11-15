@@ -23,14 +23,40 @@ DECODER_GRID = dict(
 STEP = 5
 
 
+# Split dead ball (SPEC 5.5): D_after_H / D_after_A remember who had the ball before the stoppage,
+# so the restart can favour the same team ("leave_same") or the other ("leave_other").
+SPLIT_GRID = dict(leave_same=(0.5, 1.5, 3.0, 5.0, 7.0), leave_other=(0.5, 1.5, 3.0, 5.0, 7.0))
+BLOCKED = 1e9
+
+
+def is_split(dp):
+    return "leave_same" in dp
+
+
 def decode_ll(frame_ll, blocks, dp, fill):
     ll = frame_ll.copy()
     ll[:, 2] += dp["bias_d"]
-    cost = ((0.0, dp["team_cost"], dp["enter_d"]),
-            (dp["team_cost"], 0.0, dp["enter_d"]),
-            (dp["leave_d"], dp["leave_d"], 0.0))
-    return decode.decode_blocks(ll, blocks, STEP, dp["step_weight"],
-                                (dp["min_team"], dp["min_team"], dp["min_d"]), cost, fill=fill)
+    if not is_split(dp):
+        cost = ((0.0, dp["team_cost"], dp["enter_d"]),
+                (dp["team_cost"], 0.0, dp["enter_d"]),
+                (dp["leave_d"], dp["leave_d"], 0.0))
+        return decode.decode_blocks(ll, blocks, STEP, dp["step_weight"],
+                                    (dp["min_team"], dp["min_team"], dp["min_d"]), cost,
+                                    fill=fill)
+    # States H, A, D_after_H, D_after_A; both D states emit the D log-likelihood.
+    ll4 = np.column_stack([ll[:, 0], ll[:, 1], ll[:, 2], ll[:, 2]])
+    t, e, ls, lo, B = dp["team_cost"], dp["enter_d"], dp["leave_same"], dp["leave_other"], BLOCKED
+    cost = ((0.0, t, e, B),
+            (t, 0.0, B, e),
+            (ls, lo, 0.0, B),
+            (lo, ls, B, 0.0))
+    out = decode.decode_blocks(ll4, blocks, STEP, dp["step_weight"],
+                               (dp["min_team"], dp["min_team"], dp["min_d"], dp["min_d"]), cost,
+                               fill=-1)
+    outside = out == -1
+    out[out == 3] = 2
+    out[outside] = fill
+    return out
 
 
 def pooled_score(items, dp=None, preds=None):
@@ -46,14 +72,24 @@ def pooled_score(items, dp=None, preds=None):
     return metrics.summary(metrics.evaluate(gt, pr))
 
 
-def tune_decoder(items, start=None, sweeps=2, log=None):
+def decoder_grid(dp, fixed=()):
+    """The search grid for decoder settings dp: split-D settings replace leave_d; names in
+    `fixed` are not searched (used for ablations such as 'no minimum durations')."""
+    grid = dict(DECODER_GRID)
+    if is_split(dp):
+        del grid["leave_d"]
+        grid.update(SPLIT_GRID)
+    return {k: v for k, v in grid.items() if k not in fixed}
+
+
+def tune_decoder(items, start=None, sweeps=2, log=None, fixed=()):
     """Coordinate descent on pooled spellF1 (macroF1 as tie-break)."""
     dp = dict(start or DEFAULT_DECODER)
     best = pooled_score(items, dp)
     key = lambda s: (round(s["spell_f1_mean"], 6), round(s["macro_f1"], 6))
     for _ in range(sweeps):
         changed = False
-        for name, values in DECODER_GRID.items():
+        for name, values in decoder_grid(dp, fixed).items():
             for v in values:
                 if v == dp[name]:
                     continue

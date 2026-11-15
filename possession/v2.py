@@ -34,14 +34,15 @@ def evidence_scale(ll, f):
     return float(np.median(np.abs(ll[close, 0] - ll[close, 1])) / C.V1_CLEAR_CALL_NATS)
 
 
-def predict(match, tags=None, use_tags=True, return_debug=False, mdl=None, decoder=None):
+def predict(match, tags=None, use_tags=True, return_debug=False, mdl=None, decoder=None,
+            feature_version=features.FEATURE_VERSION):
     m = orient(match)
     mdl = mdl or model.load(MODEL_PATH)
     if decoder is None:
         with open(DECODER_PATH) as handle:
             decoder = json.load(handle)["decoder"]
     base = features.compute(m)
-    Xf, _ = features.design_matrix(m, base)
+    Xf, _ = features.design_matrix(m, base, version=feature_version)
     ll = model.emission_ll(mdl, Xf)
     scale = evidence_scale(ll, base)
 

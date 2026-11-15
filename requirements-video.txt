@@ -1,0 +1,7 @@
+# Only for the M4 video ball-detection EXPERIMENT (scripts/video_*.py). NOT needed by run.py.
+# Install on top of requirements.txt. Torch is the CUDA 13.0 build:
+#   pip install torch==2.14.1 torchvision==0.29.1 --index-url https://download.pytorch.org/whl/cu130
+#   pip install -r requirements-video.txt
+av==19.0.2
+opencv-python-headless==5.0.0.93
+ultralytics==8.4.213

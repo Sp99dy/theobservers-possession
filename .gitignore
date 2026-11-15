@@ -14,6 +14,7 @@ out/
 *.xml
 *.txt
 !requirements.txt
+!requirements-video.txt
 
 # Python / editors
 __pycache__/

@@ -1,6 +1,6 @@
 # TheObservers — technical document (draft)
 
-*Draft, filled in as the milestones land (outline from SPEC §10). Current state: v2 (M2), the submitted version.*
+*Draft, filled in as the milestones land (outline from SPEC §10). Current state: v4 (§5.0b) is the default of `run.py`; v2 (M2) was the last version submitted.*
 
 ## 1. Approach in one paragraph
 
@@ -13,7 +13,9 @@ from a gradient-boosting classifier trained on **external** labelled tracking da
 data). That data is first corrupted to look like the BAR-ATH automatic tracking, so the model learns
 from inputs as noisy as the ones it will see. The decoder's costs and durations are chosen by
 leave-one-match-out cross-validation on that external data. On held-out IDSSE matches (nested CV)
-this scores spellF1 0.643, against 0.389 for the hand-set rules of our v1.
+this scores spellF1 0.643, against 0.389 for the hand-set rules of our v1. v4 adds features that
+detect ball touches from the ball's trajectory and the collective slowdown of the players at
+stoppages, and reaches 0.684 nested.
 
 ## 2. Assets used / dropped
 
@@ -120,6 +122,27 @@ parameter is fitted to statistics of the BAR-ATH *tracking*, never to its labels
   - minimum possession 2.4 s, minimum stoppage 4 s;
   - dead-ball bias +0.5 nats.
 
+### 5.0b v4 (M3b, the default): touch and slowdown features
+
+v4 is the v2 pipeline with feature version 2 (`features.design_matrix(..., version=2)`, 122
+columns). It came out of the live-play loss breakdown (`scripts/diag_liveplay.py`): most lost
+possessions are short ones after interceptions or clearances, where the nearest player is a poor
+guide to who has the ball.
+- **Touch detection** (`features.detect_touches`): a ball contact is a change in ball velocity of
+  at least 3 m/s with a player within 3 m; the team of the nearest player is the toucher. Features:
+  team of the last and next touch, time since and until them, touch balance over the surrounding
+  seconds. On BAR-ATH this finds about 14 touches per minute (degraded IDSSE: 8–12).
+- **Slowdown** (`features.slowdown_features`): mean speed over the previous and next 3, 6 and 12 s of
+  all players and of the 4 players nearest the ball, and the share of players under 2 m/s. Players
+  slow down together when play stops (fouls, offsides, the ball going out).
+- **Classifier**: same HGB settings as v2. A larger model (1000 trees, 127 leaves) gave +0.006
+  nested, within noise, so it was not adopted.
+- **Decoder** (re-tuned on IDSSE CV for this classifier): evidence weight 4.5, team switch 4.5
+  nats, entering a stoppage 7, leaving one 5, minimum possession 2.4 s, minimum stoppage 3 s,
+  dead-ball bias +0.5.
+- The kickoff and Smart Tagging layers are unchanged; their conversion factor is re-measured for
+  the new classifier (3.9).
+
 The v1 rules below remain the documented baseline (`run.py --method v1`). v2 reuses their kickoff
 detector and Smart Tagging prior.
 
@@ -186,6 +209,57 @@ BAR-ATH *tracking*, or a decoder design argument.
 - The classifier alone, taking the most likely label per frame, is 90.7% accurate.
 - Almost all of the gain over v1 comes from the learned evidence. The decoder search surface is
   flat: different settings move spellF1 by about ±0.01.
+- **Ablations and refinements** (same CV; "nested" re-tunes the decoder without the held-out
+  match). Each row changes one thing relative to v2:
+
+  | variant | spellF1 | reading |
+  |---|---|---|
+  | ball features only (tuned) | 0.491 | |
+  | ball + team shape, no motion (tuned) | 0.555 | team shape +0.06, motion +0.10 |
+  | trained on clean IDSSE, no degrader (tuned) | 0.566 | the degrader is worth +0.09 |
+  | plain HMM, no minimum durations (nested) | 0.637 | minimum durations +0.006 |
+  | split dead-ball states D_after_H / D_after_A (nested) | 0.646 | noise. The restart goes to the team that had the ball only 48% of the time |
+  | 8 corrupted copies per match instead of 4 (nested) | 0.645 | no gain |
+  | kickoff layer evaluated on IDSSE (nested) | 0.644 | neutral |
+  | larger classifier: 600 trees, 63 leaves (nested) | 0.654 | capacity helps |
+  | larger classifier: 1000 trees, 127 leaves (nested) | 0.661 | capacity helps further |
+  | 600/63 + v1 rule evidence at weight 0.35 (nested) | 0.658 | ensemble adds a little |
+  | 1000/127 + v1 rule evidence at weight 0.35 (nested) — **v3**, fallback | 0.666 | +0.004 over capacity alone, noise |
+  | **feature version 2: touch + slowdown (nested) — v4** | **0.684** | per-match 0.688, CI 0.668–0.707 |
+  | feature v2 without touch features (nested) | 0.676 | slowdown alone +0.034 |
+  | feature v2 without slowdown features (nested) | 0.677 | touch alone +0.034; the two overlap |
+  | feature v2 + 1000 trees, 127 leaves (nested) | 0.689 | +0.006, noise; not adopted |
+
+- **What v2 misses is short possessions.** Recovered (same team, IoU ≥ 0.5) by true duration:
+
+  | true duration | under 2.5 s | 2.5–5 s | 5–10 s | 10–20 s | 20–40 s | over 40 s |
+  |---|---|---|---|---|---|---|
+  | recovered | 20% | 41% | 63% | 86% | 91% | 99% |
+
+  Possessions under 5 s are 38% of all true possessions.
+
+**Secondary check: Metrica sample games 1 and 2** (public, `scripts/metrica_check.py`). These are
+Metrica's own tracking and events.
+- **Labels.** There is no per-frame possession, so H/A/D labels are derived from the events
+  (`possession/io_metrica.py`):
+  - the team of the last possession event owns the ball;
+  - the ball is dead from a stoppage (ball out, a shot out or a goal, a foul, offside) until the
+    next set piece or goal kick;
+  - then the same 2 s control rule as for IDSSE.
+
+  This gives 2.6–2.8 possessions per minute (mean 16–17 s).
+- **Why it is useful.** The tracking is not degraded, but its ball is already missing on about 40%
+  of frames, as in BAR-ATH.
+- **Use.** Never used to tune anything. It only checks whether the ranking chosen on IDSSE holds on
+  another provider's tracking.
+
+| version | spellF1 | macroF1 | possessions (GT 509) |
+|---|---|---|---|
+| organisers' baseline rule (nearest player, smooth 50) | 0.425 | 0.737 | 943 |
+| v1 rules (no tags) | 0.603 | 0.760 | 380 |
+| **v2** (no tags) | **0.702** | **0.779** | 441 |
+
+The ranking holds: baseline, then v1, then v2.
 
 **Public 5-minute window — sanity check only, not used for any selection.** Each version was run
 once.
@@ -197,9 +271,16 @@ once.
 | v1 | 0.443 | 0.718 | 11 | 25.2 s |
 | v2 without Smart Tagging | 0.462 | 0.763 | – | – |
 | **v2 (submitted)** | **0.514** | **0.768** | 11 | 25.1 s |
+| v3 (fallback) | 0.465 | 0.793 | 14 | 19.4 s |
+| **v4 (default)** | 0.493 | 0.810 | 13 | 20.8 s |
 
 On the full match, v2 predicts 226 possessions (mean 15.8 s) and 129 dead-ball stretches. Dead ball
 takes 44% of graded frames. v1 predicted 193 possessions.
+
+With 17 true possessions, one matched possession moves spellF1 by about 0.03, so v2 and v4 are not
+separable on this window. v4 labels the offside stoppage at 1:07 of the window (5.5 s) as dead
+ball on 109 of its 138 frames; v2 labels none of it dead. On the full match v4 predicts 222
+possessions (mean 15.9 s).
 
 ## 7. Limitations and future work
 
@@ -214,7 +295,20 @@ takes 44% of graded frames. v1 predicted 193 possessions.
   For spellF1 this is the safer error, but it is still an error.
 - **Label convention.** The 2 s controlled-possession bridge is our reading of the written
   definition. The challenge's reference labels may treat contested balls differently.
-- **Video.** The tactical video could fill the ball gaps. We did not use it.
+- **Video (tried, dropped).** We tried to fill the ATD's ball gaps from the tactical video:
+  - **Method.** A small public detector (Ultralytics YOLO11n) was fine-tuned on full-resolution
+    tiles. The labels were automatic: the ATD's own ball position, projected through the provided
+    homography. No human labelled anything.
+  - **Labels are aligned, ball is hard to see.** Measured by local contrast, the labels sit on
+    the ball, but the ball is a visible blob at only about 30% of ATD positions: it is 4–9 px wide
+    and often blurred. Detectors trained on single frames, then on frame-difference ("motion")
+    inputs, did not learn.
+  - **Best attempt.** Trained only on examples where the ball is visible. On held-out minutes its
+    top detection is on the ATD ball only 40–56% of the time, even when confident. Gaps are
+    harder still, so filling them would add mostly wrong ball positions. We dropped it; the
+    scripts remain (`scripts/video_*.py`, `requirements-video.txt`).
+  - **What could work with more time.** A dedicated tiny-ball model with longer temporal context
+    (a heatmap network over several frames).
 
 ## 8. Reproduction
 
@@ -222,9 +316,17 @@ takes 44% of graded frames. v1 predicted 193 possessions.
 python run.py        # -> out/TheObservers.csv
 ```
 
-`run.py` loads the committed model (`models/emission_v2.joblib`) and decoder settings
-(`models/decoder_v2.json`). It never retrains. v2 sha256:
-`f258bdea093f03c52f6fb24a258dbc23e6d17125a27738a7045f3ad576b041e6`.
+`run.py` loads the committed v4 model (`models/emission_v4.joblib`) and decoder settings
+(`models/decoder_v4.json`). It never retrains. v4 sha256:
+`ce5399e8bb93b6022e667726963f02b368efc25a4532cdc218be64d4854b92be`.
+
+The previous submission, v2 (`models/emission_v2.joblib`, `models/decoder_v2.json`):
+
+```bash
+python run.py --method v2 --out out/TheObservers_v2.csv
+```
+
+v2 sha256: `f258bdea093f03c52f6fb24a258dbc23e6d17125a27738a7045f3ad576b041e6`.
 
 To rebuild the model from scratch (this gives a byte-identical model file):
 
@@ -233,6 +335,9 @@ python scripts/download_idsse.py              # IDSSE open data
 python scripts/build_idsse_features.py        # degrader fit (BAR-ATH tracking stats only) + IDSSE features
 python scripts/cv_idsse.py --tag v2 --nested  # LOMO CV and decoder tuning
 python scripts/train_idsse.py                 # final model on all 7 matches
+# v4: feature version 2
+python scripts/cv_idsse.py --tag f2_all --feature-version 2 --nested
+python scripts/train_idsse.py --version v4 --tag f2_all
 ```
 
 Pipeline validation: our ATD loader, slot-to-team mapping, frame alignment

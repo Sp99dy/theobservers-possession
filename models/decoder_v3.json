@@ -1,0 +1,38 @@
+{
+ "cv_nested": {
+  "alive_dead_f1": 0.9699544770309323,
+  "gt_mean_spell_duration_s": 10.968864650470996,
+  "macro_f1": 0.9004627693160486,
+  "mean_spell_duration_s": 12.611583189407025,
+  "n_gt_spells": 2017,
+  "n_pred_spells": 1737,
+  "spell_f1_mean": 0.6656366542354821,
+  "team_acc_both_alive": 0.8962657700268805
+ },
+ "cv_pooled": {
+  "alive_dead_f1": 0.9701497011699747,
+  "gt_mean_spell_duration_s": 10.968864650470996,
+  "macro_f1": 0.9007334392015752,
+  "mean_spell_duration_s": 12.568858290304075,
+  "n_gt_spells": 2017,
+  "n_pred_spells": 1743,
+  "spell_f1_mean": 0.6667021276595744,
+  "team_acc_both_alive": 0.896371873168192
+ },
+ "decoder": {
+  "bias_d": 1.0,
+  "enter_d": 7.0,
+  "leave_d": 1.5,
+  "min_d": 15,
+  "min_team": 12,
+  "step_weight": 1.0,
+  "team_cost": 0.5
+ },
+ "hgb": {
+  "learning_rate": 0.06,
+  "max_iter": 1000,
+  "max_leaf_nodes": 127
+ },
+ "rule_weight": 0.35,
+ "source": "IDSSE LOMO CV, decoder_experiments_cap1000_ens_v1.json ens_v1_0.35"
+}
