@@ -11,6 +11,9 @@ who has the ball: `H` (Barcelona, ball alive), `A` (Athletic, ball alive), `D` (
 > {H, A, D} turns the evidence into labels. IDSSE leave-one-match-out CV (nested) spellF1 is 0.684,
 > against 0.643 for v2 (M2, the last version submitted) and 0.389 for the v1 rules. See
 > `experiments.md` and `TECHNICAL.md`.
+>
+> **Joining the project? Start with [`HANDOFF.md`](HANDOFF.md)**: setup, the rules, what has been
+> tried and what to try next.
 
 ## Layout
 
@@ -39,6 +42,7 @@ possession/
   v3.py                     v2 + larger classifier + v1-rule blend (M3; fallback)
   v4.py                     v2 pipeline on feature version 2: touch detection + slowdown (M3b, default)
   io_metrica.py             Metrica sample games 1+2 -> Match (secondary check only)
+  stack.py                  second-stage context features (experiment, not adopted)
   video.py, video_detect.py M4 video ball detector -- experiment only, dropped, not used by run.py
 models/                     emission_v*.joblib + decoder_v*.json (committed; run.py never retrains)
 scripts/
@@ -50,6 +54,10 @@ scripts/
   cv_idsse.py               LOMO CV, ablations, nested decoder tuning
   train_idsse.py            final model on all 7 IDSSE matches -> models/ (--version v2|v3|v4)
   decoder_experiments.py    M3 decoder / ensemble variants on cached out-of-fold emissions
+  ensemble_experiments.py   scores any cached out-of-fold emissions (or a mean) nested, vs v4 per match
+  change_head.py, change_decoder_experiments.py  touch-aware decoder (not adopted)
+  stack_experiments.py      second-stage model (not adopted)
+  postfilter_experiments.py short-possession post-filter (not adopted); caches v4's nested predictions
   metrica_check.py          secondary check on Metrica sample games (never used for selection)
   diag_*.py                 diagnostics on IDSSE OOF emissions (dead balls, live-play losses, touches)
   viewer_export.py          local match viewer data -> out/viewer/ (LOCAL ONLY: holds match extracts)

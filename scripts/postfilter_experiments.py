@@ -28,7 +28,7 @@ import time
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from possession import config, cv, features, io_idsse, metrics, model  # noqa: E402
+from possession import config, cv, io_idsse, metrics, model  # noqa: E402
 from scripts.cv_idsse import PARAMS_PATH, blocks_of  # noqa: E402
 
 H, A, D = 0, 1, 2
@@ -83,7 +83,7 @@ def main():
     z = np.load(os.path.join(config.CACHE_DIR, "oof_{}.npz".format(args.tag)))
     items = []
     for mid in io_idsse.MATCH_IDS:
-        _, y, g, _ = model.copy_features(mid, params, *model.EVAL_COPY, features.FEATURE_VERSION)
+        _, y, g, _ = model.copy_features(mid, params, *model.EVAL_COPY, 2)   # labels only; v2 cache
         items.append((z[mid].astype(np.float64), y, blocks_of(g)))
 
     cache = os.path.join(config.CACHE_DIR, "nested_preds_{}.npz".format(args.tag))

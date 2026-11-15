@@ -25,12 +25,16 @@ def to_steps(ll, step):
     return padded.reshape(n, step, K).mean(axis=1)
 
 
-def viterbi(step_ll, min_steps, switch_cost):
+def viterbi(step_ll, min_steps, switch_cost, team_bonus=None, fast_ok=None, fast_steps=None):
     """Most likely label path under minimum durations and switch costs.
 
     step_ll: (N, K) log-likelihoods. min_steps: (K,) ints >= 1. switch_cost: (K, K) nats, the
     diagonal is ignored (staying is free). The start is free in every label, and no minimum
     applies to a segment cut off by the start or end of the sequence.
+
+    Touch-aware option (labels 0 and 1 are the two teams): team_bonus (N,) nats are taken off the
+    H <-> A switch cost at step t (floored at 0), and where fast_ok[t] a switch from the other
+    team may start a possession that needs only fast_steps steps instead of min_steps.
     """
     N, K = step_ll.shape
     m = [int(x) for x in min_steps]
@@ -39,13 +43,24 @@ def viterbi(step_ll, min_steps, switch_cost):
         delta[k][-1] = step_ll[0, k]
     enter_from = np.zeros((N, K), dtype=np.int8)
     stayed = np.zeros((N, K), dtype=bool)
+    fast = np.zeros((N, K), dtype=bool)
     cost = np.asarray(switch_cost, dtype=np.float64)
+    fpos = [None] * K
+    if fast_ok is not None and fast_steps is not None:
+        for k in (0, 1):
+            if 1 <= int(fast_steps) < m[k]:
+                fpos[k] = m[k] - int(fast_steps)
 
     for t in range(1, N):
         ends = np.array([d[-1] for d in delta])
+        ct = cost
+        if team_bonus is not None and team_bonus[t] > 0:
+            ct = cost.copy()
+            ct[0, 1] = max(cost[0, 1] - team_bonus[t], 0.0)
+            ct[1, 0] = max(cost[1, 0] - team_bonus[t], 0.0)
         new = []
         for k in range(K):
-            cand = ends - cost[:, k]
+            cand = ends - ct[:, k]
             cand[k] = NEG
             j = int(np.argmax(cand))
             enter = cand[j]
@@ -63,6 +78,13 @@ def viterbi(step_ll, min_steps, switch_cost):
                 stay, advance = d[-1], d[-2]
                 stayed[t, k] = stay >= advance
                 nd[-1] = max(stay, advance) + e
+                p = fpos[k]
+                if p is not None and fast_ok[t]:
+                    fe = cand[1 - k]                    # a fast start only from the other team
+                    prev = max(stay, advance) if p == m[k] - 1 else d[p - 1]
+                    if fe > prev:
+                        fast[t, k] = True
+                        nd[p] = fe + e
             new.append(nd)
         delta = new
 
@@ -75,6 +97,10 @@ def viterbi(step_ll, min_steps, switch_cost):
         if t == 0:
             break
         last = m[k] - 1
+        if fast[t, k] and pos == fpos[k]:
+            k = 1 - k                                 # fast start from the other team
+            pos = m[k] - 1
+            continue
         if pos == last and stayed[t, k]:
             continue                                  # stayed in the final sub-state
         if pos == 0:
@@ -85,12 +111,34 @@ def viterbi(step_ll, min_steps, switch_cost):
     return path
 
 
-def decode_blocks(frame_ll, blocks, step, step_weight, min_steps, switch_cost, fill):
-    """Decode each [start, stop) block separately; frames outside every block get `fill`."""
+def steps_max(x, step):
+    """(T,) frame values -> (ceil(T/step),) step maxima."""
+    T = len(x)
+    n = -(-T // step)
+    pad = n * step - T
+    padded = np.r_[x, np.repeat(x[-1:], pad)] if pad else x
+    return padded.reshape(n, step).max(axis=1)
+
+
+def decode_blocks(frame_ll, blocks, step, step_weight, min_steps, switch_cost, fill,
+                  change=None, chg_w=0.0, chg_off=0.0, fast_thr=None, fast_steps=None):
+    """Decode each [start, stop) block separately; frames outside every block get `fill`.
+
+    change: optional (T,) log-odds that the ball changes team near each frame (the change head).
+    Per step, the H <-> A switch cost is lowered by chg_w * max(g - chg_off, 0), g being the
+    step's highest log-odds; where g >= fast_thr a switch may start a fast_steps-long possession.
+    """
     T = frame_ll.shape[0]
     out = np.full(T, fill, dtype=np.int8)
     for start, stop in blocks:
         sl = step_weight * to_steps(frame_ll[start:stop], step)
-        path = viterbi(sl, min_steps, switch_cost)
+        bonus = fast_ok = None
+        if change is not None:
+            g = steps_max(np.asarray(change[start:stop], dtype=np.float64), step)
+            if chg_w > 0:
+                bonus = chg_w * np.maximum(g - chg_off, 0.0)
+            if fast_thr is not None and fast_steps is not None:
+                fast_ok = g >= fast_thr
+        path = viterbi(sl, min_steps, switch_cost, bonus, fast_ok, fast_steps)
         out[start:stop] = np.repeat(path, step)[:stop - start]
     return out
