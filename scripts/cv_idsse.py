@@ -59,6 +59,8 @@ def main():
     ap.add_argument("--skip-v1", action="store_true")
     ap.add_argument("--hgb", default="{}", help='JSON overrides of HGB_PARAMS, e.g. {"max_iter": 600}')
     ap.add_argument("--more-copies", action="store_true", help="train on 8 copies per match, not 4")
+    ap.add_argument("--train-cache", help="read the TRAINING copies (and their degrader params) "
+                    "from this cache dir; the held-out copies come from POSSESSION_CACHE_DIR")
     ap.add_argument("--train-clean", action="store_true",
                     help="ablation: train on clean IDSSE (no degrader); still scored on degraded")
     args = ap.parse_args()
@@ -82,7 +84,14 @@ def main():
             others = [m for m in io_idsse.MATCH_IDS if m != mid]
             copies = (model.CLEAN_COPIES if args.train_clean else
                       model.TRAIN_COPIES_X2 if args.more_copies else model.TRAIN_COPIES)
-            Xtr, ytr, _ = model.training_rows(others, params, ver, copies)
+            if args.train_cache:
+                eval_cache, config.CACHE_DIR = config.CACHE_DIR, args.train_cache
+                with open(os.path.join(args.train_cache, "degrader_params.json")) as handle:
+                    tparams = json.load(handle)
+                Xtr, ytr, _ = model.training_rows(others, tparams, ver, copies)
+                config.CACHE_DIR = eval_cache
+            else:
+                Xtr, ytr, _ = model.training_rows(others, params, ver, copies)
             mdl = model.train(Xtr, ytr, cols, **json.loads(args.hgb))
             oof[mid] = model.emission_ll(mdl, evals[mid][0]).astype(np.float32)
             print("fold {}: trained on {} rows, {:.0f}s".format(mid, len(ytr), time.time() - t0),

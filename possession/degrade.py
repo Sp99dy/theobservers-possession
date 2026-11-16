@@ -21,6 +21,11 @@ Every corruption parameter is fitted to statistics of the BAR-ATH *tracking* (ne
    with the probability that brings their share of visible frames to the ATD's 4.2%.
 5. Players. Independent on/off dropout runs per player and short duplicate tracklets, with rates
    matching the ATD's per-team counts (mean ~10.25 of 11, more than 11 on ~6% of frames).
+6. Wrong-team tracklets (degrader version 2, only when params has "swap"). A player's track is
+   shown in a spare slot of the OTHER team for a run drawn from the ATD's own "one team 12+, the
+   other <= 10" run lengths; his own slot is empty meanwhile. Runs start at a per-frame hazard,
+   optionally only while he is within SWAP_CONTACT_M of an opponent (a duel). The hazard is
+   calibrated by simulation so that the degraded IDSSE reproduces the ATD's 12-vs-10 frame share.
 
 Seeds are fixed per (match, copy), so the training set is reproducible bit for bit.
 """
@@ -39,6 +44,8 @@ EDGE_EDGES = (-1e9, 0.0, 3.0, 10.0, 1e9)       # [M] bins used for the ATD hazar
 PLAYER_OFF_RUN_S = 2.0                          # [F] a lost player track typically recovers in ~2 s
 DUP_RUN_S = 1.0                                 # [F] duplicate tracklets are short-lived
 DUP_OFFSET_M = 0.7                              # [F] a duplicate sits on/next to the real player
+SWAP_CONTACT_M = 2.0                            # [F] "within ~1-2 m of an opponent"
+SWAP_SPARES = 3                                 # [D] spare wrong-team slots per team
 
 
 def _runs(mask):
@@ -288,12 +295,54 @@ def degrade(match, params, seed):
         dup[~active] = np.nan
         extra.append(dup[:, None, :])
         extra_team.append(team)
+    team_of_slot = match.team_of_slot
+    if "swap" in params:
+        players, team_of_slot = wrong_team_swaps(rng, players, team_of_slot, params["swap"], fps)
     players = np.concatenate([players] + extra, axis=1)
-    team_of_slot = np.concatenate([match.team_of_slot, np.array(extra_team, dtype=np.int8)])
+    team_of_slot = np.concatenate([team_of_slot, np.array(extra_team, dtype=np.int8)])
 
     return replace(match, players_xy=players, ball_xy=ball, team_of_slot=team_of_slot,
                    players_speed=np.full(players.shape[:2], np.nan), oriented=False,
                    attack_sign={}, name="{}#deg{}".format(match.name, seed))
+
+
+def contact_mask(players, team_of_slot, dist=SWAP_CONTACT_M):
+    """(T, S) True where the slot's player is within dist of any opponent."""
+    T, S, _ = players.shape
+    out = np.zeros((T, S), dtype=bool)
+    for team in (0, 1):
+        mine, opp = np.flatnonzero(team_of_slot == team), np.flatnonzero(team_of_slot != team)
+        d = np.linalg.norm(players[:, mine, None, :] - players[:, None, opp, :], axis=-1)
+        out[:, mine] = np.nanmin(np.where(np.isnan(d), np.inf, d), axis=2) < dist
+    return out
+
+
+def wrong_team_swaps(rng, players, team_of_slot, sp, fps):
+    """Step 6: move runs of a player's track into spare slots of the other team.
+
+    sp: {"hazard": per-frame start hazard, "runs": run lengths in frames, "contact": bool}."""
+    T, S, _ = players.shape
+    present = ~np.isnan(players[..., 0])
+    eligible = present & (contact_mask(players, team_of_slot) if sp["contact"] else True)
+    runs = np.array(sp["runs"], dtype=np.int64)
+    spares = np.full((T, 2 * SWAP_SPARES, 2), np.nan)
+    spare_team = np.repeat(np.array([1, 0], dtype=np.int8), SWAP_SPARES)   # spares of the OTHER team
+    busy = np.zeros((T, 2 * SWAP_SPARES), dtype=bool)
+    out = players.copy()
+    for j in range(S):
+        mask = _drop_runs(rng, eligible[:, j], sp["hazard"], runs)
+        a, b = _runs(mask)
+        cols = np.flatnonzero(spare_team != team_of_slot[j])
+        for s0, e0 in zip(a.tolist(), b.tolist()):
+            free = [c for c in cols if not busy[s0:e0, c].any()]
+            if not free:
+                continue
+            c = free[0]
+            busy[s0:e0, c] = True
+            spares[s0:e0, c] = out[s0:e0, j]
+            out[s0:e0, j] = np.nan
+    return (np.concatenate([out, spares], axis=1),
+            np.concatenate([team_of_slot, spare_team]).astype(np.int8))
 
 
 def swap_teams(match):
