@@ -44,17 +44,37 @@ def _feature_cache(match_id, offset, swapped, version):
         match_id, "clean" if offset is None else offset, "s" if swapped else "", version))
 
 
+def copy_labels(match_id, swapped, control_min_s):
+    """Labels of any copy of a match at bridge control_min_s. The degrader and orient() never
+    change labels (frame count, D and X are kept), so they are the clean labels, team-swapped."""
+    from .canonical import A, H
+    lab = io_idsse.load_labelled(match_id, control_min_s).labels
+    if swapped:
+        lab = np.where(lab == H, A, np.where(lab == A, H, lab)).astype(np.int8)
+    return lab
+
+
+def _bridged(match_id, swapped, y_default):
+    """Labels at the configured bridge; the default bridge returns the cached labels untouched."""
+    if config.CONTROL_MIN_S == config.DEFAULT_CONTROL_MIN_S:
+        return y_default
+    return copy_labels(match_id, swapped, config.CONTROL_MIN_S)
+
+
 def copy_features(match_id, params, offset, swapped, version, use_cache=True):
-    """(X, labels, graded, names) for one corrupted copy, cached on disk (IDSSE is public data)."""
+    """(X, labels, graded, names) for one corrupted copy, cached on disk (IDSSE is public data).
+    The cache holds labels at the default bridge; other bridges are relabelled on load."""
     path = _feature_cache(match_id, offset, swapped, version)
     if use_cache and os.path.isfile(path):
         with np.load(path, allow_pickle=False) as z:
-            return z["X"], z["y"], z["g"], z["names"].tolist()
+            return z["X"], _bridged(match_id, swapped, z["y"]), z["g"], z["names"].tolist()
     m = make_copy(match_id, params, offset, swapped)
     X, names = features.design_matrix(m, version=version)
+    y_default = (m.labels if config.CONTROL_MIN_S == config.DEFAULT_CONTROL_MIN_S else
+                 copy_labels(match_id, swapped, config.DEFAULT_CONTROL_MIN_S))
     os.makedirs(config.CACHE_DIR, exist_ok=True)
     tmp = path + ".tmp.npz"
-    np.savez(tmp, X=X, y=m.labels, g=m.graded, names=np.array(names))
+    np.savez(tmp, X=X, y=y_default, g=m.graded, names=np.array(names))
     os.replace(tmp, path)
     return X, m.labels, m.graded, names
 
