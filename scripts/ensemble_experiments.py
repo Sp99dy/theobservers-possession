@@ -56,12 +56,19 @@ def main():
     ns = cv.pooled_score(items, preds=preds)
     log("NESTED      " + metrics.format_summary(ns))
     name = "ens_" + "+".join(args.members)
+    if args.eval_bridge is not None:
+        name += "_e{:g}".format(args.eval_bridge)
     if args.save_nested:
         np.savez(os.path.join(config.CACHE_DIR, "nested_preds_{}.npz".format(name)),
                  **dict(zip(io_idsse.MATCH_IDS, preds)))
     per = [cv.pooled_score([it], preds=[p])["spell_f1_mean"] for it, p in zip(items, preds)]
     log("per match   " + " ".join("{:.4f}".format(v) for v in per))
     base_path = os.path.join(config.CACHE_DIR, "nested_preds_{}.npz".format(args.base))
+    if args.eval_bridge is not None:
+        tagged = os.path.join(config.CACHE_DIR, "nested_preds_{}_e{:g}.npz".format(
+            args.base, args.eval_bridge))
+        if os.path.isfile(tagged) or args.eval_bridge != config.CONTROL_MIN_S:
+            base_path = tagged
     if not os.path.isfile(base_path):
         log("no {}: per-match comparison skipped".format(os.path.basename(base_path)))
         return

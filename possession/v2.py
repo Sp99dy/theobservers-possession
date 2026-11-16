@@ -35,15 +35,18 @@ def evidence_scale(ll, f):
 
 
 def predict(match, tags=None, use_tags=True, return_debug=False, mdl=None, decoder=None,
-            feature_version=features.FEATURE_VERSION):
+            feature_version=features.FEATURE_VERSION, emission=None):
+    """emission: optional callable X -> (T, 3) log-probs replacing the HGB (used by v5)."""
     m = orient(match)
-    mdl = mdl or model.load(MODEL_PATH)
+    if emission is None:
+        mdl = mdl or model.load(MODEL_PATH)
+        emission = lambda X: model.emission_ll(mdl, X)
     if decoder is None:
         with open(DECODER_PATH) as handle:
             decoder = json.load(handle)["decoder"]
     base = features.compute(m)
     Xf, _ = features.design_matrix(m, base, version=feature_version)
-    ll = model.emission_ll(mdl, Xf)
+    ll = emission(Xf)
     scale = evidence_scale(ll, base)
 
     kos = kickoff.detect(base, m.half, m.fps)

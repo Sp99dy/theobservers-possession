@@ -81,6 +81,17 @@ def method_v4_notags():
     return method_v4(use_tags=False)
 
 
+def method_v5(use_tags=True):
+    """v5 candidate: v4 pipeline with neural sequence emissions (out/models_v5, scripts/train_nn.py)."""
+    from possession import io_atd, io_tagging, v5
+    match = io_atd.load_match()
+    tags = io_tagging.load() if use_tags else None
+    codes, dbg = v5.predict(match, tags, use_tags=use_tags, return_debug=True)
+    print("evidence scale {:.2f}".format(dbg["evidence_scale"]))
+    describe(codes, match, dbg)
+    return codes
+
+
 def describe(codes, match, dbg):
     """Ground-truth-free plausibility summary of a prediction (aggregates only)."""
     import numpy as np
@@ -115,6 +126,7 @@ METHODS = {
     "v3_notags": method_v3_notags,
     "v4": method_v4,
     "v4_notags": method_v4_notags,
+    "v5": method_v5,
 }
 DEFAULT_METHOD = "v4"
 
