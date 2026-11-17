@@ -103,17 +103,24 @@ def method_v6(use_tags=True):
     return codes
 
 
-def method_v51(use_tags=True):
+def method_v51(use_tags=True, version="v51"):
     """v5.1: v5's members + the Law-9 out-of-play override, decoder re-tuned with it. Weights and
     config are committed in models/v51 (IDSSE-trained), so this never retrains."""
     from possession import io_atd, io_tagging, v5
     match = io_atd.load_match()
     tags = io_tagging.load() if use_tags else None
-    model_dir = os.environ.get("POSSESSION_V51_DIR") or os.path.join(config.REPO_DIR, "models", "v51")
+    model_dir = (os.environ.get("POSSESSION_{}_DIR".format(version.upper())) or
+                 os.path.join(config.REPO_DIR, "models", version))
     codes, dbg = v5.predict(match, tags, use_tags=use_tags, return_debug=True, model_dir=model_dir)
     print("evidence scale {:.2f}".format(dbg["evidence_scale"]))
     describe(codes, match, dbg)
     return codes
+
+
+def method_v52(use_tags=True):
+    """v5.2: v5.1 with the decoder tuned on the mean spellF1 over the 2 / 1 / 0.5 s conventions
+    (models/v52/v5.json; members are v5.1's committed weights)."""
+    return method_v51(use_tags, version="v52")
 
 
 def describe(codes, match, dbg):
@@ -153,6 +160,7 @@ METHODS = {
     "v5": method_v5,
     "v6": method_v6,
     "v51": method_v51,
+    "v52": method_v52,
 }
 DEFAULT_METHOD = "v4"
 

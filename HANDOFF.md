@@ -1,5 +1,23 @@
 # Handoff: where the model stands and what to try next
 
+## v5.2 (2026-11-17): v5.1 + a decoder tuned for every label convention
+
+BAR-ATH's label convention is unknown, so the selection metric is now the **mean nested spellF1
+over the 2 s, 1 s and 0.5 s conventions** (one decoder for all three). `scripts/mean_decoder.py`
+tunes the decoder on that mean (grid + min_team 10, start = the 1 s decoder), with Law 9 and 1e-3
+rounding active, nested over the 7 IDSSE matches:
+
+| | mean | 2 s | 1 s | 0.5 s | wins (per-match mean) |
+|---|---|---|---|---|---|
+| v5.1 (2 s-tuned decoder) | 0.6650 | 0.7264 | 0.6585 | 0.6101 | |
+| **v5.2 (mean-tuned)** | **0.6801** | 0.7201 | 0.6825 | 0.6377 | 6/7 (+0.0151) |
+
+Decoder: step weight 2, team cost 0, enter D 10, leave D 5, min possession 10 steps (2 s), min D 1,
+D bias 0.5. Weights are v5.1's (`models/v52/v5.json` points at `models/v51/*.pt`).
+`python run.py --method v52` → sha256 `5a9f6e23f91ca68382e94d0e6b352bea55a3893183a8c52b024c7bb003b508f6`
+(two runs identical). BAR-ATH: 282 possessions (12.8 s mean, ≈ 4.7 per live minute), D share 0.433;
+2120 frames differ from v5.1.
+
 ## v5.1 (2026-11-17, branch `fadel/nn`): v5 + Law 9, hardened for byte-identical rebuilds
 
 **What changed vs v5.** (1) **Law 9 override**: where the tracked ball is more than 1 m beyond a
