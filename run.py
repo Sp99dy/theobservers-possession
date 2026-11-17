@@ -92,6 +92,17 @@ def method_v5(use_tags=True):
     return codes
 
 
+def method_v6(use_tags=True):
+    """v6 candidate: v5 with members trained on the dead-time ball degrader (out/models_v6)."""
+    from possession import io_atd, io_tagging, v6
+    match = io_atd.load_match()
+    tags = io_tagging.load() if use_tags else None
+    codes, dbg = v6.predict(match, tags, use_tags=use_tags, return_debug=True)
+    print("evidence scale {:.2f}".format(dbg["evidence_scale"]))
+    describe(codes, match, dbg)
+    return codes
+
+
 def describe(codes, match, dbg):
     """Ground-truth-free plausibility summary of a prediction (aggregates only)."""
     import numpy as np
@@ -127,6 +138,7 @@ METHODS = {
     "v4": method_v4,
     "v4_notags": method_v4_notags,
     "v5": method_v5,
+    "v6": method_v6,
 }
 DEFAULT_METHOD = "v4"
 

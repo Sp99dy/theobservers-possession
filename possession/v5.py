@@ -26,29 +26,32 @@ MODEL_DIR = os.environ.get("POSSESSION_V5_DIR") or os.path.join(C.OUT_DIR, "mode
 CONFIG_PATH = os.path.join(MODEL_DIR, "v5.json")
 
 
-def load_member(name):
+def load_member(name, model_dir=None):
+    model_dir = model_dir or MODEL_DIR
     if name.endswith(".joblib"):
-        mdl = model.load(os.path.join(MODEL_DIR, name))
+        mdl = model.load(os.path.join(model_dir, name))
         return lambda X: model.emission_ll(mdl, X).astype(np.float32)
-    ck = torch.load(os.path.join(MODEL_DIR, name), weights_only=False)
+    ck = torch.load(os.path.join(model_dir, name), weights_only=False)
     net = pnn.ARCHS[ck["arch"]](ck["n_in"], hidden=ck["hidden"])
     net.load_state_dict(ck["state"])
     net.eval()
     return lambda X: pnn.predict_frames(net, X, ck["mu"], ck["sd"])
 
 
-def emission_fn(members):
-    fns = [load_member(m) for m in members]
+def emission_fn(members, model_dir=None):
+    fns = [load_member(m, model_dir) for m in members]
 
     def emission(X):
         return np.mean([f(X).astype(np.float64) for f in fns], axis=0)
     return emission
 
 
-def predict(match, tags=None, use_tags=True, return_debug=False):
+def predict(match, tags=None, use_tags=True, return_debug=False, model_dir=None):
+    """model_dir: another model set with the same layout (v6 uses out/models_v6)."""
     torch.use_deterministic_algorithms(True)
-    with open(CONFIG_PATH) as handle:
+    model_dir = model_dir or MODEL_DIR
+    with open(os.path.join(model_dir, "v5.json")) as handle:
         cfg = json.load(handle)
     return v2.predict(match, tags, use_tags=use_tags, return_debug=return_debug,
                       decoder=cfg["decoder"], feature_version=FEATURE_VERSION,
-                      emission=emission_fn(cfg["members"]))
+                      emission=emission_fn(cfg["members"], model_dir))

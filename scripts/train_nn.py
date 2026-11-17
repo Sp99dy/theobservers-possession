@@ -6,7 +6,8 @@
 
 Same settings as scripts/nn_cv.py (offsets 0-8 + mirrors, 12 epochs x 3000 windows), CPU, fixed
 seeds: the weights are byte-identical on rerun on the same platform. Writes <dir>/<name>.pt and
-<dir>/v5.json (members + decoder), dir = POSSESSION_V5_DIR or out/models_v5.
+<dir>/v5.json (members + decoder), dir = --out-dir or POSSESSION_V5_DIR or out/models_v5. The
+training copies come from POSSESSION_CACHE_DIR (v6: the dead-time ball cache).
 """
 
 import argparse
@@ -30,12 +31,14 @@ def main():
     ap.add_argument("--hgb", default=None, help="HGB joblib in the cache to add as a member")
     ap.add_argument("--decoder-from", required=True)
     ap.add_argument("--threads", type=int, default=4)
+    ap.add_argument("--out-dir", default=None, help="model dir (default: v5.MODEL_DIR)")
     args = ap.parse_args()
+    out_dir = args.out_dir or v5.MODEL_DIR
     assert config.CONTROL_MIN_S == 0.5, "train at the 0.5 s bridge (POSSESSION_CONTROL_MIN_S=0.5)"
     torch.set_num_threads(args.threads)
     torch.use_deterministic_algorithms(True)
     log = lambda s: print(s, flush=True)
-    os.makedirs(v5.MODEL_DIR, exist_ok=True)
+    os.makedirs(out_dir, exist_ok=True)
     with open(PARAMS_PATH) as handle:
         params = json.load(handle)
     t0 = time.time()
@@ -48,21 +51,22 @@ def main():
     for spec in args.member:
         arch, seed, name = spec.split(":")
         net = pnn.train(seqs, arch=arch, seed=int(seed), log=log)
-        path = os.path.join(v5.MODEL_DIR, name + ".pt")
+        path = os.path.join(out_dir, name + ".pt")
         torch.save({"arch": arch, "hidden": 64, "n_in": seqs[0][0].shape[1], "mu": mu, "sd": sd,
                     "state": net.state_dict()}, path)
         members.append(name + ".pt")
         log("{} saved, {:.0f}s".format(name, time.time() - t0))
     if args.hgb:
         shutil.copyfile(os.path.join(config.CACHE_DIR, args.hgb),
-                        os.path.join(v5.MODEL_DIR, args.hgb))
+                        os.path.join(out_dir, args.hgb))
         members.append(args.hgb)
     with open(args.decoder_from) as handle:
         decoder = json.load(handle)["decoder"]
-    with open(v5.CONFIG_PATH, "w") as handle:
+    config_path = os.path.join(out_dir, "v5.json")
+    with open(config_path, "w") as handle:
         json.dump({"members": members, "decoder": decoder,
                    "decoder_from": os.path.basename(args.decoder_from)}, handle, indent=1)
-    log("wrote {}".format(v5.CONFIG_PATH))
+    log("wrote {}".format(config_path))
 
 
 if __name__ == "__main__":
