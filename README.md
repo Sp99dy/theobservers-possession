@@ -4,7 +4,8 @@ This is Team TheObservers' Phase 1 submission. For every frame of the BAR-ATH ta
 who has the ball: `H` (Barcelona, ball alive), `A` (Athletic, ball alive), `D` (dead ball), or `X`
 (not graded).
 
-> **Status: v4 is the default (`python run.py`).** A gradient-boosting classifier trained on IDSSE
+> **Status: v5.4 is the default (`python run.py`, sha 443667c0…; see HANDOFF.md / TECHNICAL.md §8). The
+> v4 description below is kept for `python run.py --method v4`.** A gradient-boosting classifier trained on IDSSE
 > open data, which is corrupted to look like the BAR-ATH tracking, gives per-frame evidence. Its
 > features include ball-touch detection and the collective slowdown of players at stoppages.
 > Kickoff detection and a Smart Tagging prior are added, and a minimum-duration Viterbi decoder over

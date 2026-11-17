@@ -180,7 +180,7 @@ Python 3.14 and the pinned `requirements.txt`. Paths can be overridden with `MTA
 
 ```bash
 python -m venv .venv && .venv/Scripts/python -m pip install -r requirements.txt   # .venv/bin/python on Linux/Mac
-python run.py                     # must print sha256 ce5399e8bb93b6022e667726963f02b368efc25a4532cdc218be64d4854b92be
+python run.py --method v4         # must print sha256 ce5399e8bb93b6022e667726963f02b368efc25a4532cdc218be64d4854b92be (default is now v54)
 python -m pytest -q               # 84+ tests
 ```
 

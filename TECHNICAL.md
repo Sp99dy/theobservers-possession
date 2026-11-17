@@ -313,8 +313,10 @@ possessions (mean 15.9 s).
 ## 8. Reproduction
 
 ```bash
-python run.py        # -> out/TheObservers.csv
+python run.py        # -> out/TheObservers.csv  (default method v54, sha 443667c0…a154)
 ```
+
+The default is v5.4 (below). v4, the earlier default, is `python run.py --method v4`.
 
 **v5.4** (the current candidate; v5.2's decoder tuned on the mean over the 2 / 1 / 0.5 s
 conventions, plus broadcast replay evidence on D, `possession/replay.py`):
@@ -343,7 +345,7 @@ Viterbi decoder, so last-bit float differences between CPUs or BLAS builds canno
 Perturbing the emissions by ±1e-4 changes 0 frames. v5.1 sha256:
 `b8239637e98e0aa68e58f4426131890ad0f7bcf9fce82502b2beaa70a96b674b`.
 
-`run.py` loads the committed v4 model (`models/emission_v4.joblib`) and decoder settings
+`run.py --method v4` loads the committed v4 model (`models/emission_v4.joblib`) and decoder settings
 (`models/decoder_v4.json`). It never retrains. v4 sha256:
 `ce5399e8bb93b6022e667726963f02b368efc25a4532cdc218be64d4854b92be`.
 

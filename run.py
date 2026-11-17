@@ -174,7 +174,7 @@ METHODS = {
     "v53": method_v53,
     "v54": method_v54,
 }
-DEFAULT_METHOD = "v4"
+DEFAULT_METHOD = "v54"
 
 
 def main():
