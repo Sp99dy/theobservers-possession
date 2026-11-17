@@ -1,5 +1,29 @@
 # Handoff: where the model stands and what to try next
 
+## v5.5 (2026-11-17): v5.4 + two short-possession members (pre-declared test, passed)
+
+Two extra NN members aimed at fast possession changes, each trained on all 7 IDSSE matches (0.5 s
+bridge) and committed in `models/v55/`: **gru05sw** (switch-weighted loss: 3× on steps within 1 s
+of a label change; `train_nn.py --member gru:0:nn_gru05sw:5:3`) and **gru05f12** (12.5 fps,
+60 s windows; `--member gru:0:nn_gru05f12:2`). The emission is the equal mean of 5 members (v5.1's
+three + these two); the decoder is tuned on the mean over the 2 / 1 / 0.5 s conventions
+(`scripts/mean_decoder.py`); Law 9, 1e-3 rounding, 1 inference thread and the replay evidence
+(2.195, frozen at v5.4's value, estimated on v5.2's decoding, not re-estimated) as in v5.4.
+
+Nested IDSSE, pre-declared as the only combination tested (bar ≥ +0.003 mean and ≥ 5/7):
+
+| | mean | 2 s | 1 s | 0.5 s | wins |
+|---|---|---|---|---|---|
+| v5.2 (= v5.4 on IDSSE) | 0.6801 | 0.7201 | 0.6825 | 0.6377 | |
+| **v5.5 (5 members)** | **0.6836** | 0.7147 | 0.6890 | 0.6470 | 5/7 (+0.0035) |
+
+Each alone did not clear the bar (sw +0.0018 4/7, f12 +0.0002 5/7). Decoder: step weight 1, team cost
+0, enter D 7, leave D 5, min possession 8 steps, min D 15, D bias 0.5. `python run.py --method v55`
+→ sha256 `d7e4bcfe2fa4470903fc3fef28e2ce8040d1dd3559c296209769231fbfaf2a92` (two runs identical,
+~2 min on 1 thread; emission noise ±1e-4 changes 0 frames; retraining both new members into a
+fresh dir gives byte-identical weights). BAR-ATH: 289 possessions (12.2 s), D share 0.444; 2365
+frames differ from v5.4. **Not yet verified on Windows** (the 12.5 fps path is new).
+
 ## v5.4 (2026-11-17): v5.2 + broadcast replay evidence (adopted on Fadel's decision)
 
 Broadcasters cut to replays and close-ups mostly while play is stopped; the broadcast homography is

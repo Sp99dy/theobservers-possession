@@ -1,0 +1,24 @@
+{
+ "members": [
+  "../v51/nn_gru05.pt",
+  "../v51/nn_gru05s1.pt",
+  "../v51/nn_tcn05.pt",
+  "nn_gru05sw.pt",
+  "nn_gru05f12.pt"
+ ],
+ "decoder": {
+  "step_weight": 1.0,
+  "team_cost": 0.0,
+  "enter_d": 7.0,
+  "leave_d": 5.0,
+  "min_team": 8,
+  "min_d": 15,
+  "bias_d": 0.5
+ },
+ "decoder_from": "cv_m5swf12_mean_decoder.json (scripts/mean_decoder.py, 5 members, mean metric, law9, quantize 1e-3)",
+ "law9": true,
+ "quantize": 0.001,
+ "inference_threads": 1,
+ "replay_llr": 2.195,
+ "replay_note": "frozen at v5.4's value (EM on v5.2's decoding, 2.19494 -> 2.195); not re-estimated for v5.5"
+}

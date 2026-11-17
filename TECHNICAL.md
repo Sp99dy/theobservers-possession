@@ -318,6 +318,15 @@ python run.py        # -> out/TheObservers.csv  (default method v54, sha 443667c
 
 The default is v5.4 (below). v4, the earlier default, is `python run.py --method v4`.
 
+**v5.5** (v5.4 + two members, a switch-weighted GRU and a 12.5 fps GRU, committed in
+`models/v55/`; decoder re-tuned on the mean over conventions):
+
+```bash
+python run.py --method v55 --out out/TheObservers_v55.csv
+```
+
+v5.5 sha256: `d7e4bcfe2fa4470903fc3fef28e2ce8040d1dd3559c296209769231fbfaf2a92`.
+
 **v5.4** (the current candidate; v5.2's decoder tuned on the mean over the 2 / 1 / 0.5 s
 conventions, plus broadcast replay evidence on D, `possession/replay.py`):
 
