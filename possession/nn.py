@@ -22,15 +22,21 @@ TRAIN_OFFSETS = tuple(range(9))     # never offset 9 (the held-out evaluation co
 CLIP = 8.0
 
 
-def phase_of(offset, swapped):
-    """Which of the 5 subsampling phases a training copy uses (deterministic, spreads phases)."""
-    return (offset + 2 * int(swapped)) % STEP
+def phase_of(offset, swapped, step=STEP):
+    """Which subsampling phase a training copy uses (deterministic, spreads phases)."""
+    return (offset + 2 * int(swapped)) % step
 
 
-def load_copy(match_id, params, offset, swapped):
+def win_of(step):
+    """Window and hop in steps for a subsampling step (always 60 s windows, 30 s hop)."""
+    w = int(round(WIN * STEP / step))
+    return w, w // 2
+
+
+def load_copy(match_id, params, offset, swapped, step=STEP):
     X, y, g, names = model.copy_features(match_id, params, offset, swapped, 2)
-    ph = phase_of(offset, swapped)
-    return X[ph::STEP].astype(np.float32), y[ph::STEP].astype(np.int64), g[ph::STEP], names
+    ph = phase_of(offset, swapped, step)
+    return X[ph::step].astype(np.float32), y[ph::step].astype(np.int64), g[ph::step], names
 
 
 def fit_scaler(Xs):
@@ -86,8 +92,8 @@ ARCHS = {"gru": BiGRU, "tcn": TCN}
 
 
 def train(seqs, arch="gru", epochs=12, windows_per_epoch=3000, batch=32, lr=2e-3, seed=0,
-          log=print, **kw):
-    """seqs: list of (Z (T, C) float32 prepared, y (T,) int, g (T,) bool) at 5 fps."""
+          log=print, win=WIN, **kw):
+    """seqs: list of (Z (T, C) float32 prepared, y (T,) int, g (T,) bool), win steps per window."""
     torch.manual_seed(seed)
     rng = np.random.default_rng(seed)
     ys = np.concatenate([y[g & (y < 3)] for _, y, g in seqs])
@@ -107,11 +113,11 @@ def train(seqs, arch="gru", epochs=12, windows_per_epoch=3000, batch=32, lr=2e-3
             xb, yb = [], []
             for k in rng.choice(len(seqs), size=batch, p=pick_p):
                 Z, y, g = seqs[k]
-                s = int(rng.integers(0, max(1, len(Z) - WIN)))
-                xb.append(Z[s:s + WIN])
-                yy = y[s:s + WIN].copy()
-                yy[(~g[s:s + WIN]) | (yy > 2)] = -1
-                xb[-1], yy = _pad(xb[-1], yy)
+                s = int(rng.integers(0, max(1, len(Z) - win)))
+                xb.append(Z[s:s + win])
+                yy = y[s:s + win].copy()
+                yy[(~g[s:s + win]) | (yy > 2)] = -1
+                xb[-1], yy = _pad(xb[-1], yy, win)
                 yb.append(yy)
             xb = torch.from_numpy(np.stack(xb))
             yb = torch.from_numpy(np.stack(yb))
@@ -129,36 +135,38 @@ def train(seqs, arch="gru", epochs=12, windows_per_epoch=3000, batch=32, lr=2e-3
     return net
 
 
-def _pad(x, y):
-    if len(x) >= WIN:
+def _pad(x, y, win=WIN):
+    if len(x) >= win:
         return x, y
-    n = WIN - len(x)
+    n = win - len(x)
     return (np.concatenate([x, np.zeros((n, x.shape[1]), np.float32)]),
             np.concatenate([y, np.full(n, -1, y.dtype)]))
 
 
 @torch.no_grad()
-def predict_steps(net, Z):
-    """Log-probs (T, 3) for one 5 fps sequence: overlapping windows, each keeps its centre half."""
+def predict_steps(net, Z, win=WIN, hop=HOP):
+    """Log-probs (T, 3) for one subsampled sequence: overlapping windows, each keeps its centre."""
     T = len(Z)
     out = np.zeros((T, 3), np.float32)
-    if T <= WIN:
+    if T <= win:
         return net(torch.from_numpy(Z)[None])[0].numpy()
-    starts = list(range(0, T - WIN, HOP)) + [T - WIN]
-    q = (WIN - HOP) // 2
+    starts = list(range(0, T - win, hop)) + [T - win]
+    q = (win - hop) // 2
     filled = 0
     for s in starts:
-        o = net(torch.from_numpy(Z[s:s + WIN])[None])[0].numpy()
+        o = net(torch.from_numpy(Z[s:s + win])[None])[0].numpy()
         lo = filled
-        hi = T if s == starts[-1] else s + WIN - q
+        hi = T if s == starts[-1] else s + win - q
         out[lo:hi] = o[lo - s:hi - s]
         filled = hi
     return out
 
 
-def predict_frames(net, X, mu, sd):
+def predict_frames(net, X, mu, sd, step=STEP):
     """Frame-resolution (25 fps) log-probs: one pass per subsampling phase, interleaved."""
     out = np.zeros((len(X), 3), np.float32)
-    for ph in range(STEP):
-        out[ph::STEP] = predict_steps(net, prepare(X[ph::STEP].astype(np.float32), mu, sd))
+    win, hop = win_of(step)
+    for ph in range(step):
+        out[ph::step] = predict_steps(net, prepare(X[ph::step].astype(np.float32), mu, sd),
+                                      win, hop)
     return out

@@ -32,6 +32,7 @@ def main():
     ap.add_argument("--offsets", default="0-8")
     ap.add_argument("--threads", type=int, default=4)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--step", type=int, default=pnn.STEP, help="subsampling step (5 = 5 fps, 2 = 12.5 fps)")
     ap.add_argument("--folds", nargs="*", default=None, help="subset of match ids (debug)")
     ap.add_argument("--train-cache", default=None,
                     help="read the TRAINING copies and their degrader params from this cache dir")
@@ -64,7 +65,7 @@ def main():
     copies = {}
     config.CACHE_DIR = train_dir
     for mid in io_idsse.MATCH_IDS:
-        copies[mid] = [pnn.load_copy(mid, tparams, o, s)[:3] for o in offsets for s in (False, True)]
+        copies[mid] = [pnn.load_copy(mid, tparams, o, s, args.step)[:3] for o in offsets for s in (False, True)]
     config.CACHE_DIR = home_cache
     log("loaded {} copies, {:.0f}s".format(sum(map(len, copies.values())), time.time() - t0))
 
@@ -82,15 +83,16 @@ def main():
         mu, sd = pnn.fit_scaler([X for X, _, _ in train])
         seqs = [(pnn.prepare(X, mu, sd), y, g) for X, y, g in train]
         net = pnn.train(seqs, arch=args.arch, epochs=args.epochs, windows_per_epoch=args.windows,
-                        seed=args.seed, log=log, hidden=args.hidden)
+                        seed=args.seed, log=log, hidden=args.hidden,
+                        win=pnn.win_of(args.step)[0])
         torch.save({"arch": args.arch, "hidden": args.hidden, "n_in": seqs[0][0].shape[1],
-                    "mu": mu, "sd": sd, "state": net.state_dict()},
+                    "mu": mu, "sd": sd, "step": args.step, "state": net.state_dict()},
                    os.path.join(fold_dir, mid + ".pt"))
         for d in eval_dirs:
             config.CACHE_DIR = d
             X, y, g, _ = model.copy_features(mid, eparams[d], *model.EVAL_COPY, 2)
             config.CACHE_DIR = home_cache
-            ll = pnn.predict_frames(net, X, mu, sd)
+            ll = pnn.predict_frames(net, X, mu, sd, args.step)
             ok = g & (y < 3)
             acc = float(np.mean(np.argmax(ll[ok], 1) == y[ok]))
             np.save(paths[d], ll)

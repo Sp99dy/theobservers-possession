@@ -27,11 +27,12 @@ from scripts.cv_idsse import PARAMS_PATH  # noqa: E402
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--member", action="append", required=True, help="arch:seed:name")
+    ap.add_argument("--member", action="append", required=True, help="arch:seed:name[:step]")
     ap.add_argument("--hgb", default=None, help="HGB joblib in the cache to add as a member")
     ap.add_argument("--decoder-from", required=True)
     ap.add_argument("--threads", type=int, default=4)
     ap.add_argument("--out-dir", default=None, help="model dir (default: v5.MODEL_DIR)")
+    ap.add_argument("--law9", action="store_true", help="v5.1: write law9=true into the config")
     args = ap.parse_args()
     out_dir = args.out_dir or v5.MODEL_DIR
     assert config.CONTROL_MIN_S == 0.5, "train at the 0.5 s bridge (POSSESSION_CONTROL_MIN_S=0.5)"
@@ -42,18 +43,26 @@ def main():
     with open(PARAMS_PATH) as handle:
         params = json.load(handle)
     t0 = time.time()
-    train = [pnn.load_copy(mid, params, o, s)[:3] for mid in io_idsse.MATCH_IDS
-             for o in pnn.TRAIN_OFFSETS for s in (False, True)]
-    mu, sd = pnn.fit_scaler([X for X, _, _ in train])
-    seqs = [(pnn.prepare(X, mu, sd), y, g) for X, y, g in train]
-    log("{} copies, {:.0f}s".format(len(seqs), time.time() - t0))
+    data = {}
+
+    def seqs_for(step):
+        if step not in data:
+            train = [pnn.load_copy(mid, params, o, s, step)[:3] for mid in io_idsse.MATCH_IDS
+                     for o in pnn.TRAIN_OFFSETS for s in (False, True)]
+            mu, sd = pnn.fit_scaler([X for X, _, _ in train])
+            data[step] = ([(pnn.prepare(X, mu, sd), y, g) for X, y, g in train], mu, sd)
+            log("{} copies at step {}, {:.0f}s".format(len(train), step, time.time() - t0))
+        return data[step]
     members = []
     for spec in args.member:
-        arch, seed, name = spec.split(":")
-        net = pnn.train(seqs, arch=arch, seed=int(seed), log=log)
+        parts = spec.split(":")
+        arch, seed, name = parts[:3]
+        step = int(parts[3]) if len(parts) > 3 else pnn.STEP
+        seqs, mu, sd = seqs_for(step)
+        net = pnn.train(seqs, arch=arch, seed=int(seed), log=log, win=pnn.win_of(step)[0])
         path = os.path.join(out_dir, name + ".pt")
         torch.save({"arch": arch, "hidden": 64, "n_in": seqs[0][0].shape[1], "mu": mu, "sd": sd,
-                    "state": net.state_dict()}, path)
+                    "step": step, "state": net.state_dict()}, path)
         members.append(name + ".pt")
         log("{} saved, {:.0f}s".format(name, time.time() - t0))
     if args.hgb:
@@ -64,8 +73,11 @@ def main():
         decoder = json.load(handle)["decoder"]
     config_path = os.path.join(out_dir, "v5.json")
     with open(config_path, "w") as handle:
-        json.dump({"members": members, "decoder": decoder,
-                   "decoder_from": os.path.basename(args.decoder_from)}, handle, indent=1)
+        cfg = {"members": members, "decoder": decoder,
+               "decoder_from": os.path.basename(args.decoder_from)}
+        if args.law9:
+            cfg["law9"] = True
+        json.dump(cfg, handle, indent=1)
     log("wrote {}".format(config_path))
 
 

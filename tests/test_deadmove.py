@@ -43,3 +43,15 @@ def test_dead_ball_moves_deterministic():
     a = degrade.dead_ball_moves(np.random.default_rng(3), ball, players, team, labels, half, sp, fps)
     b = degrade.dead_ball_moves(np.random.default_rng(3), ball, players, team, labels, half, sp, fps)
     assert np.array_equal(np.nan_to_num(a, nan=-1), np.nan_to_num(b, nan=-1))
+
+
+def test_law9_mask_needs_five_frames_and_override_forces_d():
+    from possession import rules
+    out = np.zeros(30)
+    out[2:6] = 1          # 4 frames: too short
+    out[10:15] = 1        # 5 frames: out of play
+    m = rules.law9_mask(out)
+    assert not m[2:6].any() and m[10:15].all() and m.sum() == 5
+    ll = np.log(np.full((30, 3), 1 / 3))
+    ll2 = rules.law9_override(ll, m)
+    assert np.all(np.argmax(ll2[m], 1) == 2) and np.array_equal(ll2[~m], ll[~m])

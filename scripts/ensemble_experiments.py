@@ -17,8 +17,18 @@ import time
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from possession import config, cv, io_idsse, metrics, model  # noqa: E402
+from possession import config, cv, features, io_idsse, metrics, model, rules  # noqa: E402
 from scripts.cv_idsse import PARAMS_PATH, blocks_of  # noqa: E402
+
+
+def law9_eval_mask(mid, params):
+    """Law-9 mask on the evaluation copy (cached; depends only on the degraded tracking)."""
+    path = os.path.join(config.CACHE_DIR, "law9_{}_{}{}.npy".format(
+        mid, model.EVAL_COPY[0], "s" if model.EVAL_COPY[1] else ""))
+    if not os.path.isfile(path):
+        m = model.make_copy(mid, params, *model.EVAL_COPY)
+        np.save(path, rules.law9_mask(features.compute(m)["ball_out"]))
+    return np.load(path)
 
 
 def main():
@@ -29,6 +39,8 @@ def main():
                     help="score against labels at this bridge (default: POSSESSION_CONTROL_MIN_S)")
     ap.add_argument("--save-nested", action="store_true",
                     help="also write cache/nested_preds_<ensemble name>.npz (usable as --base)")
+    ap.add_argument("--law9", action="store_true",
+                    help="force D where the ball is out of play (rules.law9_mask) before decoding")
     args = ap.parse_args()
     log = lambda s: print(s, flush=True)
     t0 = time.time()
@@ -43,6 +55,8 @@ def main():
         if args.eval_bridge is not None:
             y = model.copy_labels(mid, model.EVAL_COPY[1], args.eval_bridge)
         ll = np.mean([z[mid].astype(np.float64) for z in zs], axis=0)
+        if args.law9:
+            ll = rules.law9_override(ll, law9_eval_mask(mid, params))
         items.append((ll, y, blocks_of(g)))
     log("members " + " + ".join(args.members))
     dp, best = cv.tune_decoder(items, start=base_dp)
@@ -55,7 +69,7 @@ def main():
         preds.append(cv.decode_ll(items[i][0], items[i][2], dpi, fill=3))
     ns = cv.pooled_score(items, preds=preds)
     log("NESTED      " + metrics.format_summary(ns))
-    name = "ens_" + "+".join(args.members)
+    name = "ens_" + "+".join(args.members) + ("_law9" if args.law9 else "")
     if args.eval_bridge is not None:
         name += "_e{:g}".format(args.eval_bridge)
     if args.save_nested:

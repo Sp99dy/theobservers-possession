@@ -35,7 +35,7 @@ def load_member(name, model_dir=None):
     net = pnn.ARCHS[ck["arch"]](ck["n_in"], hidden=ck["hidden"])
     net.load_state_dict(ck["state"])
     net.eval()
-    return lambda X: pnn.predict_frames(net, X, ck["mu"], ck["sd"])
+    return lambda X: pnn.predict_frames(net, X, ck["mu"], ck["sd"], ck.get("step", pnn.STEP))
 
 
 def emission_fn(members, model_dir=None):
@@ -54,4 +54,5 @@ def predict(match, tags=None, use_tags=True, return_debug=False, model_dir=None)
         cfg = json.load(handle)
     return v2.predict(match, tags, use_tags=use_tags, return_debug=return_debug,
                       decoder=cfg["decoder"], feature_version=FEATURE_VERSION,
-                      emission=emission_fn(cfg["members"], model_dir))
+                      emission=emission_fn(cfg["members"], model_dir),
+                      law9=cfg.get("law9", False))

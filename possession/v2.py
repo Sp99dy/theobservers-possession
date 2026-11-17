@@ -35,8 +35,9 @@ def evidence_scale(ll, f):
 
 
 def predict(match, tags=None, use_tags=True, return_debug=False, mdl=None, decoder=None,
-            feature_version=features.FEATURE_VERSION, emission=None):
-    """emission: optional callable X -> (T, 3) log-probs replacing the HGB (used by v5)."""
+            feature_version=features.FEATURE_VERSION, emission=None, law9=False):
+    """emission: optional callable X -> (T, 3) log-probs replacing the HGB (used by v5).
+    law9: force D where the ball is out of play (rules.law9_mask), after all other terms."""
     m = orient(match)
     if emission is None:
         mdl = mdl or model.load(MODEL_PATH)
@@ -56,6 +57,8 @@ def predict(match, tags=None, use_tags=True, return_debug=False, mdl=None, decod
         tz, ty = tagging_prior.evidence(m.n_frames, tags, kos, m.fps)
         dz, dy = dz + tz, dy + ty
     ll = ll + scale * rules.emissions(dz, dy)
+    if law9:
+        ll = rules.law9_override(ll, rules.law9_mask(base["ball_out"]))
 
     blocks = [(s, e) for _, s, e in m.half_blocks()]
     codes = cv.decode_ll(ll, blocks, decoder, fill=X)
