@@ -328,6 +328,7 @@ rounding, 1 inference thread and the frozen replay log-ratio (2.195, estimated l
 BAR-ATH; reproduction does not re-run EM). Also reads the broadcast ATD and homography (lag 4014 /
 26920 frames). v5.4 sha256: `443667c05bfedc30f3c8125265fc5af62fde16f8a69f8ad485eae7a6e1b4a154`.
 v5.2 (`--method v52`): `5a9f6e23f91ca68382e94d0e6b352bea55a3893183a8c52b024c7bb003b508f6`.
+Verified on Windows x86 by Tobias (v5.2, 2026-11-17): byte-identical, about 170 s.
 
 **v5.1** (NN ensemble + Law 9, the candidate submission):
 

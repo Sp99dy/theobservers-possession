@@ -81,7 +81,7 @@ every bridge, plus that aggregate.
 frames vs the unrounded 4-thread run, so the sha is unchanged. Two runs are identical (82 s on 1
 thread). `scripts/check_float_robustness.py` perturbs the ensemble emission by uniform ±1e-6 and
 ±1e-4 (a stand-in for arm64 vs x86 / BLAS differences): 0 frames change, with or without rounding.
-**Still unchecked: an actual run on Windows x86.** To rebuild the weights instead of using the
+**Verified on Windows x86 by Tobias (v5.2, 2026-11-17)**: byte-identical sha 5a9f6e23, about 170 s. To rebuild the weights instead of using the
 committed ones: the v5 commands below, then `train_nn.py ... --law9 --out-dir models/v51`
 (byte-identical on this Mac), and add `"quantize": 0.001, "inference_threads": 1` to its
 `v5.json`.
@@ -134,8 +134,8 @@ starts from `cv_b05_f2_decoder.json`, so a fresh clone runs the CV steps first. 
 **Determinism.** On macOS arm64 (CPU, torch 2.15.0), a full retrain into a fresh directory gave
 byte-identical weights and the same CSV sha. Two inference runs also matched, and so did a fold
 trained at 2 vs 4 threads. v4's sha (`ce5399e8…`) is unchanged.
-**Open caveat: byte-identical regeneration on Windows x86 is unchecked.** CPU float kernels can
-differ between platforms, so check the sha there before resubmitting.
+**Verified on Windows x86 by Tobias (v5.2, 2026-11-17)**: `run.py --method v52` gave sha 5a9f6e23
+byte for byte (about 170 s), with the committed weights, 1e-3 rounding and 1-thread inference.
 
 **Also on `fadel/bridge` (3cb4618), neither adopted.** Degrader v2 (wrong-team swaps fitted to
 BAR-ATH's 12v10 rate) and fully nested stacking.
