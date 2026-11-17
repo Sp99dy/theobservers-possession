@@ -318,7 +318,8 @@ python run.py
   from scratch (IDSSE download, feature caches, `scripts/train_nn.py`; commands in `HANDOFF.md`) gives
   byte-identical weights on macOS arm64.
 - Cross-platform: a teammate rebuilt **v5.2** (`--method v52`, sha256 `5a9f6e23f91c…08f6`) on
-  Windows x86 byte for byte (about 170 s). [Windows v5.5: pending]
+  Windows x86 byte for byte (about 170 s), and the submitted v5.5 file was regenerated on the same
+  Windows machine and checked against the sha above before upload.
 - **Fallback:** `python run.py --method v54` gives v5.4, sha256
   `443667c05bfedc30f3c8125265fc5af62fde16f8a69f8ad485eae7a6e1b4a154`.
 - Pipeline check: our loader, frame alignment and CSV writer reproduce the organisers' four baselines
