@@ -27,7 +27,7 @@ from scripts.cv_idsse import PARAMS_PATH  # noqa: E402
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--member", action="append", required=True, help="arch:seed:name[:step]")
+    ap.add_argument("--member", action="append", required=True, help="arch:seed:name[:step[:switch_weight[:win_s]]]")
     ap.add_argument("--hgb", default=None, help="HGB joblib in the cache to add as a member")
     ap.add_argument("--decoder-from", required=True)
     ap.add_argument("--threads", type=int, default=4)
@@ -58,11 +58,14 @@ def main():
         parts = spec.split(":")
         arch, seed, name = parts[:3]
         step = int(parts[3]) if len(parts) > 3 else pnn.STEP
+        sw = float(parts[4]) if len(parts) > 4 else 1.0
+        win_s = float(parts[5]) if len(parts) > 5 else 60.0
         seqs, mu, sd = seqs_for(step)
-        net = pnn.train(seqs, arch=arch, seed=int(seed), log=log, win=pnn.win_of(step)[0])
+        net = pnn.train(seqs, arch=arch, seed=int(seed), log=log, win=pnn.win_of(step, win_s)[0],
+                        switch_weight=sw)
         path = os.path.join(out_dir, name + ".pt")
         torch.save({"arch": arch, "hidden": 64, "n_in": seqs[0][0].shape[1], "mu": mu, "sd": sd,
-                    "step": step, "state": net.state_dict()}, path)
+                    "step": step, "win_s": win_s, "state": net.state_dict()}, path)
         members.append(name + ".pt")
         log("{} saved, {:.0f}s".format(name, time.time() - t0))
     if args.hgb:
