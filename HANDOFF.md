@@ -1,14 +1,17 @@
 # Handoff: where the model stands and what to try next
 
-## v5.3 (2026-11-17): v5.2 + broadcast ball fill (BAR-ATH input repair)
+## v5.3 broadcast ball fill (2026-11-17): not adopted, v5.2 stays
 
-`possession/ballfill.py`: where the tactical ATD has no ball, take the broadcast ATD's ball (constant
-per-half lag 4014 / 26920 frames, measured label-free by `scripts/measure_broadcast_lag.py`; valid
-homography; a filled run must join the tactical ball within 5 m at its edges). 3 879 graded frames
-filled. IDSSE has no broadcast feed, so the nested scores are v5.2's. `python run.py --method v53` →
-sha256 `4578703170958ade14bb88eaa82ec7aa60fc688c5f77244def6edadf7b7aa76b` (two runs identical);
-287 possessions, 4.74 per live minute. Needs the broadcast `_atd.txt/.xml` and `_homography.csv`
-from the data bundle.
+`possession/ballfill.py` fills tactical ball gaps from the broadcast ATD (constant per-half lag
+4014 / 26920 frames, measured label-free by `scripts/measure_broadcast_lag.py`: median ball
+distance 0.80 / 0.85 m). The broadcast ball is noisy (70–74% within 2 m where both exist), so the
+reviewed rule is conservative and all-or-nothing per gap: gap ≤ 3 s, the broadcast ball within 2 m
+of the tactical one on the 5 visible frames at both edges, valid homography and no step > 3 m.
+**No frame qualifies**: tactical gaps are long (150 gaps, 64.6k frames, ~17 s mean); the ≤ 3 s gaps
+hold 75 frames and none passes the edge check. `run.py --method v53` therefore reproduces v5.2's
+sha 5a9f6e23. A looser first version (any length, runs joining the tactical ball within 5 m) filled
+3 879 frames (sha 45787031, commit f5659a5) but was superseded: unverifiable, and outside the
+reviewed rule.
 
 ## v5.2 (2026-11-17): v5.1 + a decoder tuned for every label convention
 

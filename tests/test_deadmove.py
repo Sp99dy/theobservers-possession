@@ -57,19 +57,19 @@ def test_law9_mask_needs_five_frames_and_override_forces_d():
     assert np.all(np.argmax(ll2[m], 1) == 2) and np.array_equal(ll2[~m], ll[~m])
 
 
-def test_ballfill_keeps_only_runs_that_join_the_tactical_ball():
+def test_ballfill_fills_only_short_agreeing_smooth_gaps():
     from possession import ballfill
-    T = 200
-    tac = np.full((T, 2), np.nan)
-    tac[:50] = [0.0, 0.0]
-    tac[150:] = [30.0, 0.0]
-    ball = tac.copy()
-    filled = np.zeros(T, dtype=bool)
-    ball[50:60] = [1.0, 0.0]          # joins (1 m from the tactical ball before it)
-    filled[50:60] = True
-    ball[140:150] = [10.0, 0.0]       # jumps 20 m to the tactical ball after it
-    filled[140:150] = True
-    ball[100:110] = [5.0, 0.0]        # no tactical ball within 1 s: unjoined
-    filled[100:110] = True
-    keep = ballfill._joined_runs(tac, ball, filled, 25)
-    assert keep[50:60].all() and not keep[140:150].any() and not keep[100:110].any()
+    T = 400
+    tac = np.zeros((T, 2))
+    tac[:, 0] = np.linspace(0, 40, T)
+    bro = tac + 0.5
+    valid = np.ones(T, dtype=bool)
+    graded = np.ones(T, dtype=bool)
+    tac[50:60] = np.nan                       # short, edges agree, smooth -> filled
+    tac[100:200] = np.nan                     # 4 s: too long
+    tac[250:260] = np.nan
+    bro[245] += 5.0                           # edge disagrees -> not filled
+    tac[300:310] = np.nan
+    bro[305] += 4.0                           # jump inside the gap -> not filled
+    f = ballfill.gap_fill(tac, bro, valid, graded, 25)
+    assert f[50:60].all() and f.sum() == 10
