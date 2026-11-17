@@ -1,6 +1,17 @@
 # Handoff: where the model stands and what to try next
 
-## v5.5 (2026-11-17): v5.4 + two short-possession members (pre-declared test, passed)
+## v5.5 (2026-11-17): THE DEFAULT (`python run.py`), adopted on the pre-declared bar; fallback v5.4
+
+**Adopted** (Fadel, "yes go with v5.5, v5.4 as fallback") on the pre-declared bar: +0.0035 mean, 5/7.
+`python run.py` → sha256 `d7e4bcfe2fa4470903fc3fef28e2ce8040d1dd3559c296209769231fbfaf2a92`.
+**Fallback v5.4**: `python run.py --method v54` → sha256
+`443667c05bfedc30f3c8125265fc5af62fde16f8a69f8ad485eae7a6e1b4a154`.
+Replay check under v5.5's decoder (step weight 1 vs v5.2's 2): the replay bonus is added to the
+frame log-likelihoods before the decoder's step-weight scaling, so it scales exactly like the NN
+evidence (unchanged relative weight). Its effect: 1430 frames changed under v5.5 vs 1500 under
+v5.4; D share +0.009 in both (0.435 → 0.444 vs 0.433 → 0.442).
+
+### v5.5 details: v5.4 + two short-possession members
 
 Two extra NN members aimed at fast possession changes, each trained on all 7 IDSSE matches (0.5 s
 bridge) and committed in `models/v55/`: **gru05sw** (switch-weighted loss: 3× on steps within 1 s
