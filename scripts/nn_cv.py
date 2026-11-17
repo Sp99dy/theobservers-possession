@@ -35,6 +35,8 @@ def main():
     ap.add_argument("--win-s", type=float, default=60.0, help="window length in seconds (hop = half)")
     ap.add_argument("--dilations", default=None, help="TCN dilations, e.g. 1,2,4,8,16,32,64")
     ap.add_argument("--batch", type=int, default=32)
+    ap.add_argument("--switch-weight", type=float, default=1.0,
+                    help="loss weight within 1 s of a label change (1 = off)")
     ap.add_argument("--step", type=int, default=pnn.STEP, help="subsampling step (5 = 5 fps, 2 = 12.5 fps)")
     ap.add_argument("--folds", nargs="*", default=None, help="subset of match ids (debug)")
     ap.add_argument("--train-cache", default=None,
@@ -88,7 +90,8 @@ def main():
         seqs = [(pnn.prepare(X, mu, sd), y, g) for X, y, g in train]
         net = pnn.train(seqs, arch=args.arch, epochs=args.epochs, windows_per_epoch=args.windows,
                         seed=args.seed, log=log, hidden=args.hidden,
-                        win=pnn.win_of(args.step, args.win_s)[0], batch=args.batch, **arch_kw)
+                        win=pnn.win_of(args.step, args.win_s)[0], batch=args.batch,
+                        switch_weight=args.switch_weight, **arch_kw)
         torch.save({"arch": args.arch, "hidden": args.hidden, "n_in": seqs[0][0].shape[1],
                     "mu": mu, "sd": sd, "step": args.step, "win_s": args.win_s, "arch_kw": arch_kw,
                     "state": net.state_dict()},

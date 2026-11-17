@@ -20,6 +20,7 @@ HOP = 150           # [D] 30 s overlap
 STEP = model.SUBSAMPLE
 TRAIN_OFFSETS = tuple(range(9))     # never offset 9 (the held-out evaluation copy)
 CLIP = 8.0
+STEP_RADIUS = 5     # [D] 1 s at 5 fps: "near a label change" for the switch-weighted loss
 
 
 def phase_of(offset, swapped, step=STEP):
@@ -92,8 +93,9 @@ ARCHS = {"gru": BiGRU, "tcn": TCN}
 
 
 def train(seqs, arch="gru", epochs=12, windows_per_epoch=3000, batch=32, lr=2e-3, seed=0,
-          log=print, win=WIN, **kw):
-    """seqs: list of (Z (T, C) float32 prepared, y (T,) int, g (T,) bool), win steps per window."""
+          log=print, win=WIN, switch_weight=1.0, switch_radius=STEP_RADIUS, **kw):
+    """seqs: list of (Z (T, C) float32 prepared, y (T,) int, g (T,) bool), win steps per window.
+    switch_weight: loss weight on steps within switch_radius steps of a label change (1 = off)."""
     torch.manual_seed(seed)
     rng = np.random.default_rng(seed)
     ys = np.concatenate([y[g & (y < 3)] for _, y, g in seqs])
@@ -105,24 +107,35 @@ def train(seqs, arch="gru", epochs=12, windows_per_epoch=3000, batch=32, lr=2e-3
     sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=lr, total_steps=total)
     lens = np.array([len(s[0]) for s in seqs], dtype=np.float64)
     pick_p = lens / lens.sum()
-    lossf = nn.NLLLoss(weight=w, ignore_index=-1)
+    lossf = nn.NLLLoss(weight=w, ignore_index=-1)          # the original loss, kept bit-exact
+    lossf_none = nn.NLLLoss(weight=w, ignore_index=-1, reduction="none")
+    sws = [_switch_weights(y, switch_weight, switch_radius) for _, y, _ in seqs]
     for ep in range(epochs):
         net.train()
         tot, nb = 0.0, 0
         for _ in range(windows_per_epoch // batch):
-            xb, yb = [], []
+            xb, yb, wb = [], [], []
             for k in rng.choice(len(seqs), size=batch, p=pick_p):
                 Z, y, g = seqs[k]
                 s = int(rng.integers(0, max(1, len(Z) - win)))
                 xb.append(Z[s:s + win])
                 yy = y[s:s + win].copy()
                 yy[(~g[s:s + win]) | (yy > 2)] = -1
+                ww = sws[k][s:s + win]
                 xb[-1], yy = _pad(xb[-1], yy, win)
                 yb.append(yy)
+                wb.append(np.concatenate([ww, np.ones(win - len(ww), np.float32)]))
             xb = torch.from_numpy(np.stack(xb))
             yb = torch.from_numpy(np.stack(yb))
             out = net(xb)
-            loss = lossf(out.reshape(-1, 3), yb.reshape(-1))
+            yf = yb.reshape(-1)
+            if switch_weight == 1.0:
+                loss = lossf(out.reshape(-1, 3), yf)
+            else:
+                per = lossf_none(out.reshape(-1, 3), yf)
+                sw = torch.from_numpy(np.stack(wb)).reshape(-1)
+                cw = w[yf.clamp(min=0)] * (yf >= 0)
+                loss = (per * sw).sum() / (cw * sw).sum().clamp(min=1e-8)
             opt.zero_grad()
             loss.backward()
             nn.utils.clip_grad_norm_(net.parameters(), 1.0)
@@ -133,6 +146,16 @@ def train(seqs, arch="gru", epochs=12, windows_per_epoch=3000, batch=32, lr=2e-3
         log("  epoch {:2d} loss {:.4f}".format(ep, tot / nb))
     net.eval()
     return net
+
+
+def _switch_weights(y, weight, radius):
+    """1 everywhere, `weight` on steps within `radius` of a change of label (any of H/A/D)."""
+    out = np.ones(len(y), np.float32)
+    if weight == 1.0:
+        return out
+    for c in np.flatnonzero(np.diff(y) != 0) + 1:
+        out[max(0, c - radius):c + radius] = weight
+    return out
 
 
 def _pad(x, y, win=WIN):
