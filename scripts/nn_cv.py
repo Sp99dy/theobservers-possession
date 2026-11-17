@@ -32,6 +32,9 @@ def main():
     ap.add_argument("--offsets", default="0-8")
     ap.add_argument("--threads", type=int, default=4)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--win-s", type=float, default=60.0, help="window length in seconds (hop = half)")
+    ap.add_argument("--dilations", default=None, help="TCN dilations, e.g. 1,2,4,8,16,32,64")
+    ap.add_argument("--batch", type=int, default=32)
     ap.add_argument("--step", type=int, default=pnn.STEP, help="subsampling step (5 = 5 fps, 2 = 12.5 fps)")
     ap.add_argument("--folds", nargs="*", default=None, help="subset of match ids (debug)")
     ap.add_argument("--train-cache", default=None,
@@ -42,6 +45,7 @@ def main():
     args = ap.parse_args()
     torch.set_num_threads(args.threads)
     torch.use_deterministic_algorithms(True)
+    arch_kw = {"dilations": tuple(int(d) for d in args.dilations.split(","))} if args.dilations else {}
     lo, hi = (int(v) for v in args.offsets.split("-"))
     offsets = [o for o in range(lo, hi + 1) if o != model.EVAL_COPY[0]]
     log = lambda s: print(s, flush=True)
@@ -84,15 +88,16 @@ def main():
         seqs = [(pnn.prepare(X, mu, sd), y, g) for X, y, g in train]
         net = pnn.train(seqs, arch=args.arch, epochs=args.epochs, windows_per_epoch=args.windows,
                         seed=args.seed, log=log, hidden=args.hidden,
-                        win=pnn.win_of(args.step)[0])
+                        win=pnn.win_of(args.step, args.win_s)[0], batch=args.batch, **arch_kw)
         torch.save({"arch": args.arch, "hidden": args.hidden, "n_in": seqs[0][0].shape[1],
-                    "mu": mu, "sd": sd, "step": args.step, "state": net.state_dict()},
+                    "mu": mu, "sd": sd, "step": args.step, "win_s": args.win_s, "arch_kw": arch_kw,
+                    "state": net.state_dict()},
                    os.path.join(fold_dir, mid + ".pt"))
         for d in eval_dirs:
             config.CACHE_DIR = d
             X, y, g, _ = model.copy_features(mid, eparams[d], *model.EVAL_COPY, 2)
             config.CACHE_DIR = home_cache
-            ll = pnn.predict_frames(net, X, mu, sd, args.step)
+            ll = pnn.predict_frames(net, X, mu, sd, args.step, args.win_s)
             ok = g & (y < 3)
             acc = float(np.mean(np.argmax(ll[ok], 1) == y[ok]))
             np.save(paths[d], ll)

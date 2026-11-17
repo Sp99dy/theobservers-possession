@@ -27,9 +27,9 @@ def phase_of(offset, swapped, step=STEP):
     return (offset + 2 * int(swapped)) % step
 
 
-def win_of(step):
-    """Window and hop in steps for a subsampling step (always 60 s windows, 30 s hop)."""
-    w = int(round(WIN * STEP / step))
+def win_of(step, win_s=60.0):
+    """Window and hop in steps for a subsampling step and a window length (hop = half a window)."""
+    w = int(round(win_s / 60.0 * WIN * STEP / step))
     return w, w // 2
 
 
@@ -162,10 +162,10 @@ def predict_steps(net, Z, win=WIN, hop=HOP):
     return out
 
 
-def predict_frames(net, X, mu, sd, step=STEP):
+def predict_frames(net, X, mu, sd, step=STEP, win_s=60.0):
     """Frame-resolution (25 fps) log-probs: one pass per subsampling phase, interleaved."""
     out = np.zeros((len(X), 3), np.float32)
-    win, hop = win_of(step)
+    win, hop = win_of(step, win_s)
     for ph in range(step):
         out[ph::step] = predict_steps(net, prepare(X[ph::step].astype(np.float32), mu, sd),
                                       win, hop)

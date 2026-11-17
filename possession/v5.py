@@ -32,10 +32,11 @@ def load_member(name, model_dir=None):
         mdl = model.load(os.path.join(model_dir, name))
         return lambda X: model.emission_ll(mdl, X).astype(np.float32)
     ck = torch.load(os.path.join(model_dir, name), weights_only=False)
-    net = pnn.ARCHS[ck["arch"]](ck["n_in"], hidden=ck["hidden"])
+    net = pnn.ARCHS[ck["arch"]](ck["n_in"], hidden=ck["hidden"], **ck.get("arch_kw", {}))
     net.load_state_dict(ck["state"])
     net.eval()
-    return lambda X: pnn.predict_frames(net, X, ck["mu"], ck["sd"], ck.get("step", pnn.STEP))
+    return lambda X: pnn.predict_frames(net, X, ck["mu"], ck["sd"], ck.get("step", pnn.STEP),
+                                            ck.get("win_s", 60.0))
 
 
 def emission_fn(members, model_dir=None):
