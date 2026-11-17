@@ -69,3 +69,29 @@ def kickoff_evidence(n, kickoffs, pre_spans, fps=25):
 def emissions(z, y):
     """(T, 3) per-frame log-likelihoods for H, A, D."""
     return np.stack([-z / 2 + y / 2, -z / 2 - y / 2, z / 2], axis=1)
+
+
+LAW9_MIN_FRAMES = 5      # [L] 0.2 s at 25 fps: a ball over the line for that long is out of play
+LAW9_NATS = 30.0         # [D] H/A log-lik set this far below D: a hard constraint in practice
+
+
+def law9_mask(ball_out, min_frames=LAW9_MIN_FRAMES):
+    """Law 9: frames in runs of >= min_frames where the tracked ball is more than
+    BALL_OUT_MARGIN_M outside the touchline or goal line (features' ball_out)."""
+    out = np.asarray(ball_out) > 0
+    m = np.r_[False, out, False].astype(np.int8)
+    d = np.diff(m)
+    mask = np.zeros(len(out), dtype=bool)
+    for a, b in zip(np.flatnonzero(d == 1), np.flatnonzero(d == -1)):
+        if b - a >= min_frames:
+            mask[a:b] = True
+    return mask
+
+
+def law9_override(ll, mask):
+    """Force D on masked frames as an emission override (the decoder's minimum durations and
+    switch costs still apply): H and A log-likelihoods are put LAW9_NATS below D's."""
+    out = ll.copy()
+    out[mask, 0] = out[mask, 2] - LAW9_NATS
+    out[mask, 1] = out[mask, 2] - LAW9_NATS
+    return out

@@ -38,7 +38,10 @@ METRICA_DIR = os.environ.get("METRICA_DIR") or os.path.join(os.path.dirname(REPO
 # (pooled over 7 matches: 4.6 possessions/min, median 3.7 s, 37% shorter than 2 s). The challenge
 # counts *controlled* possession only ("a player keeps the ball for a few seconds"; a touch or
 # deflection is not a change). We read "a few seconds" at its lower end: 2 s.
-CONTROL_MIN_S = 2.0
+# Experiment knob: POSSESSION_CONTROL_MIN_S overrides it (e.g. 0.5 or 1.0). Feature caches always
+# store labels at the default, and model.copy_features relabels on the fly for any other value.
+DEFAULT_CONTROL_MIN_S = 2.0
+CONTROL_MIN_S = float(os.environ.get("POSSESSION_CONTROL_MIN_S") or DEFAULT_CONTROL_MIN_S)
 
 # -- canonical coordinates -----------------------------------------------------------------------
 

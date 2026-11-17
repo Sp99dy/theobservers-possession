@@ -34,16 +34,30 @@ def evidence_scale(ll, f):
     return float(np.median(np.abs(ll[close, 0] - ll[close, 1])) / C.V1_CLEAR_CALL_NATS)
 
 
+def quantize_ll(ll, q):
+    """Round to a grid of q (e.g. 1e-3 nats): decoding then sees identical inputs on any CPU unless
+    a value sits within float noise of a rounding boundary."""
+    return np.round(np.asarray(ll, dtype=np.float64) / q) * q
+
+
 def predict(match, tags=None, use_tags=True, return_debug=False, mdl=None, decoder=None,
-            feature_version=features.FEATURE_VERSION):
+            feature_version=features.FEATURE_VERSION, emission=None, law9=False, quantize=None,
+            d_bonus=None):
+    """emission: optional callable X -> (T, 3) log-probs replacing the HGB (used by v5).
+    law9: force D where the ball is out of play (rules.law9_mask), after all other terms.
+    quantize: round the final log-likelihoods to this grid before decoding, so last-bit float
+    differences between CPUs / BLAS builds cannot flip the Viterbi path.
+    d_bonus: optional (T,) nats added to D after rounding (v5.4 replay evidence), rounded again."""
     m = orient(match)
-    mdl = mdl or model.load(MODEL_PATH)
+    if emission is None:
+        mdl = mdl or model.load(MODEL_PATH)
+        emission = lambda X: model.emission_ll(mdl, X)
     if decoder is None:
         with open(DECODER_PATH) as handle:
             decoder = json.load(handle)["decoder"]
     base = features.compute(m)
     Xf, _ = features.design_matrix(m, base, version=feature_version)
-    ll = model.emission_ll(mdl, Xf)
+    ll = emission(Xf)
     scale = evidence_scale(ll, base)
 
     kos = kickoff.detect(base, m.half, m.fps)
@@ -53,7 +67,16 @@ def predict(match, tags=None, use_tags=True, return_debug=False, mdl=None, decod
         tz, ty = tagging_prior.evidence(m.n_frames, tags, kos, m.fps)
         dz, dy = dz + tz, dy + ty
     ll = ll + scale * rules.emissions(dz, dy)
+    if law9:
+        ll = rules.law9_override(ll, rules.law9_mask(base["ball_out"]))
 
+    if quantize:
+        ll = quantize_ll(ll, quantize)
+    if d_bonus is not None:
+        ll = ll.copy()
+        ll[:, 2] += d_bonus
+        if quantize:
+            ll = quantize_ll(ll, quantize)
     blocks = [(s, e) for _, s, e in m.half_blocks()]
     codes = cv.decode_ll(ll, blocks, decoder, fill=X)
     if return_debug:

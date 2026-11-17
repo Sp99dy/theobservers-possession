@@ -17,14 +17,32 @@ import time
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from possession import config, cv, io_idsse, metrics, model  # noqa: E402
+from possession import config, cv, features, io_idsse, metrics, model, rules  # noqa: E402
 from scripts.cv_idsse import PARAMS_PATH, blocks_of  # noqa: E402
+
+
+def law9_eval_mask(mid, params):
+    """Law-9 mask on the evaluation copy (cached; depends only on the degraded tracking)."""
+    path = os.path.join(config.CACHE_DIR, "law9_{}_{}{}.npy".format(
+        mid, model.EVAL_COPY[0], "s" if model.EVAL_COPY[1] else ""))
+    if not os.path.isfile(path):
+        m = model.make_copy(mid, params, *model.EVAL_COPY)
+        np.save(path, rules.law9_mask(features.compute(m)["ball_out"]))
+    return np.load(path)
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--members", nargs="+", required=True)
     ap.add_argument("--base", default="f2_all")
+    ap.add_argument("--eval-bridge", type=float, default=None,
+                    help="score against labels at this bridge (default: POSSESSION_CONTROL_MIN_S)")
+    ap.add_argument("--save-nested", action="store_true",
+                    help="also write cache/nested_preds_<ensemble name>.npz (usable as --base)")
+    ap.add_argument("--law9", action="store_true",
+                    help="force D where the ball is out of play (rules.law9_mask) before decoding")
+    ap.add_argument("--quantize", type=float, default=None,
+                    help="round the ensemble log-probs to this grid before decoding (v5.1: 1e-3)")
     args = ap.parse_args()
     log = lambda s: print(s, flush=True)
     t0 = time.time()
@@ -36,7 +54,13 @@ def main():
     items = []
     for mid in io_idsse.MATCH_IDS:
         _, y, g, _ = model.copy_features(mid, params, *model.EVAL_COPY, 2)   # labels only; v2 cache
+        if args.eval_bridge is not None:
+            y = model.copy_labels(mid, model.EVAL_COPY[1], args.eval_bridge)
         ll = np.mean([z[mid].astype(np.float64) for z in zs], axis=0)
+        if args.law9:
+            ll = rules.law9_override(ll, law9_eval_mask(mid, params))
+        if args.quantize:
+            ll = np.round(ll / args.quantize) * args.quantize
         items.append((ll, y, blocks_of(g)))
     log("members " + " + ".join(args.members))
     dp, best = cv.tune_decoder(items, start=base_dp)
@@ -49,16 +73,33 @@ def main():
         preds.append(cv.decode_ll(items[i][0], items[i][2], dpi, fill=3))
     ns = cv.pooled_score(items, preds=preds)
     log("NESTED      " + metrics.format_summary(ns))
-    with np.load(os.path.join(config.CACHE_DIR, "nested_preds_{}.npz".format(args.base))) as zb:
+    name = "ens_" + "+".join(args.members) + ("_law9" if args.law9 else "") + (
+        "_q{:g}".format(args.quantize) if args.quantize else "")
+    if args.eval_bridge is not None:
+        name += "_e{:g}".format(args.eval_bridge)
+    if args.save_nested:
+        np.savez(os.path.join(config.CACHE_DIR, "nested_preds_{}.npz".format(name)),
+                 **dict(zip(io_idsse.MATCH_IDS, preds)))
+    per = [cv.pooled_score([it], preds=[p])["spell_f1_mean"] for it, p in zip(items, preds)]
+    log("per match   " + " ".join("{:.4f}".format(v) for v in per))
+    base_path = os.path.join(config.CACHE_DIR, "nested_preds_{}.npz".format(args.base))
+    if args.eval_bridge is not None:
+        tagged = os.path.join(config.CACHE_DIR, "nested_preds_{}_e{:g}.npz".format(
+            args.base, args.eval_bridge))
+        if os.path.isfile(tagged) or args.eval_bridge != config.CONTROL_MIN_S:
+            base_path = tagged
+    if not os.path.isfile(base_path):
+        log("no {}: per-match comparison skipped".format(os.path.basename(base_path)))
+        return
+    with np.load(base_path) as zb:
         base = [zb[mid] for mid in io_idsse.MATCH_IDS]
     b = cv.pooled_score(items, preds=base)["spell_f1_mean"]
     diffs = [cv.pooled_score([it], preds=[p])["spell_f1_mean"] -
              cv.pooled_score([it], preds=[q])["spell_f1_mean"]
              for it, p, q in zip(items, preds, base)]
-    log("vs v4 (nested {:.4f}): {:+.4f}; per match {}; wins {}/7".format(
-        b, ns["spell_f1_mean"] - b, " ".join("{:+.3f}".format(d) for d in diffs),
+    log("vs {} (nested {:.4f}): {:+.4f}; per match {}; wins {}/7".format(
+        args.base, b, ns["spell_f1_mean"] - b, " ".join("{:+.3f}".format(d) for d in diffs),
         sum(d > 0 for d in diffs)))
-    name = "ens_" + "+".join(args.members)
     with open(os.path.join(config.CACHE_DIR, "cv_{}_decoder.json".format(name)), "w") as handle:
         json.dump({"members": args.members, "decoder": dp, "pooled": best, "nested": ns,
                    "per_match_vs_v4": diffs}, handle, indent=1)

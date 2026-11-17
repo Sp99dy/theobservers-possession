@@ -1,0 +1,20 @@
+{
+ "members": [
+  "../v51/nn_gru05.pt",
+  "../v51/nn_gru05s1.pt",
+  "../v51/nn_tcn05.pt"
+ ],
+ "decoder": {
+  "step_weight": 2.0,
+  "team_cost": 0.0,
+  "enter_d": 10.0,
+  "leave_d": 5.0,
+  "min_team": 10,
+  "min_d": 1,
+  "bias_d": 0.5
+ },
+ "decoder_from": "cv_v52_mean_decoder.json (scripts/mean_decoder.py: mean spellF1 over 2/1/0.5 s, law9, quantize 1e-3)",
+ "law9": true,
+ "quantize": 0.001,
+ "inference_threads": 1
+}

@@ -1,0 +1,20 @@
+{
+ "members": [
+  "nn_gru05.pt",
+  "nn_gru05s1.pt",
+  "nn_tcn05.pt"
+ ],
+ "decoder": {
+  "step_weight": 0.75,
+  "team_cost": 2.0,
+  "enter_d": 3.5,
+  "leave_d": 5.0,
+  "min_team": 12,
+  "min_d": 1,
+  "bias_d": 1.0
+ },
+ "decoder_from": "cv_ens_nn_gru05+nn_gru05s1+nn_tcn05_law9_e2_decoder.json",
+ "law9": true,
+ "quantize": 0.001,
+ "inference_threads": 1
+}

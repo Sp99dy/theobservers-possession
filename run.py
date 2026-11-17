@@ -81,6 +81,64 @@ def method_v4_notags():
     return method_v4(use_tags=False)
 
 
+def method_v5(use_tags=True):
+    """v5 candidate: v4 pipeline with neural sequence emissions (out/models_v5, scripts/train_nn.py)."""
+    from possession import io_atd, io_tagging, v5
+    match = io_atd.load_match()
+    tags = io_tagging.load() if use_tags else None
+    codes, dbg = v5.predict(match, tags, use_tags=use_tags, return_debug=True)
+    print("evidence scale {:.2f}".format(dbg["evidence_scale"]))
+    describe(codes, match, dbg)
+    return codes
+
+
+def method_v6(use_tags=True):
+    """v6 candidate: v5 with members trained on the dead-time ball degrader (out/models_v6)."""
+    from possession import io_atd, io_tagging, v6
+    match = io_atd.load_match()
+    tags = io_tagging.load() if use_tags else None
+    codes, dbg = v6.predict(match, tags, use_tags=use_tags, return_debug=True)
+    print("evidence scale {:.2f}".format(dbg["evidence_scale"]))
+    describe(codes, match, dbg)
+    return codes
+
+
+def method_v51(use_tags=True, version="v51"):
+    """v5.1: v5's members + the Law-9 out-of-play override, decoder re-tuned with it. Weights and
+    config are committed in models/v51 (IDSSE-trained), so this never retrains."""
+    from possession import io_atd, io_tagging, v5
+    match = io_atd.load_match()
+    tags = io_tagging.load() if use_tags else None
+    model_dir = (os.environ.get("POSSESSION_{}_DIR".format(version.upper())) or
+                 os.path.join(config.REPO_DIR, "models", version))
+    codes, dbg = v5.predict(match, tags, use_tags=use_tags, return_debug=True, model_dir=model_dir)
+    print("evidence scale {:.2f}".format(dbg["evidence_scale"]))
+    describe(codes, match, dbg)
+    return codes
+
+
+def method_v52(use_tags=True):
+    """v5.2: v5.1 with the decoder tuned on the mean spellF1 over the 2 / 1 / 0.5 s conventions
+    (models/v52/v5.json; members are v5.1's committed weights)."""
+    return method_v51(use_tags, version="v52")
+
+
+def method_v53(use_tags=True):
+    """v5.3 candidate: v5.2 + broadcast ball fill of tactical gaps (possession/ballfill.py)."""
+    return method_v51(use_tags, version="v53")
+
+
+def method_v54(use_tags=True):
+    """v5.4: v5.2 + broadcast replay evidence on D (possession/replay.py, frozen log-ratio)."""
+    return method_v51(use_tags, version="v54")
+
+
+def method_v55(use_tags=True):
+    """v5.5: v5.4 with two more members (switch-weighted GRU, 12.5 fps GRU) and their mean-tuned
+    decoder (models/v55)."""
+    return method_v51(use_tags, version="v55")
+
+
 def describe(codes, match, dbg):
     """Ground-truth-free plausibility summary of a prediction (aggregates only)."""
     import numpy as np
@@ -115,8 +173,15 @@ METHODS = {
     "v3_notags": method_v3_notags,
     "v4": method_v4,
     "v4_notags": method_v4_notags,
+    "v5": method_v5,
+    "v6": method_v6,
+    "v51": method_v51,
+    "v52": method_v52,
+    "v53": method_v53,
+    "v54": method_v54,
+    "v55": method_v55,
 }
-DEFAULT_METHOD = "v4"
+DEFAULT_METHOD = "v55"
 
 
 def main():

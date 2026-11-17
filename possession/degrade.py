@@ -261,6 +261,9 @@ def degrade(match, params, seed):
     players = smooth_positions(match.players_xy, params["player_smooth"])
     ball = prep["ball"].copy()
     missing = _ball_missing(rng, prep, params["h_live"], params["h_dead"], st, params["beta"])
+    if "deadmove" in params:
+        ball = dead_ball_moves(np.random.default_rng([seed, 8]), ball, players, match.team_of_slot,
+                               match.labels, match.half, params["deadmove"], fps)
     ball[missing] = np.nan
 
     # 5. players: dropouts and duplicates
@@ -288,12 +291,145 @@ def degrade(match, params, seed):
         dup[~active] = np.nan
         extra.append(dup[:, None, :])
         extra_team.append(team)
+    if "idswap" in params:
+        players = identity_swaps(np.random.default_rng([seed, 7]), players, match.team_of_slot,
+                                 match.graded, params["idswap"], fps)
     players = np.concatenate([players] + extra, axis=1)
     team_of_slot = np.concatenate([match.team_of_slot, np.array(extra_team, dtype=np.int8)])
 
     return replace(match, players_xy=players, ball_xy=ball, team_of_slot=team_of_slot,
                    players_speed=np.full(players.shape[:2], np.nan), oriented=False,
                    attack_sign={}, name="{}#deg{}".format(match.name, seed))
+
+
+def identity_swaps(rng, players, team_of_slot, graded, sp, fps):
+    """Step 7 (only when params has "idswap"): tracker identity swaps.
+
+    Same-team: two present players of one team exchange tracks from frame t on (permanent; only
+    the one-frame jump is visible). Cross-team: one present player per team exchange tracks for a
+    run of exponential length (mean sp["cross_mean_s"]), then swap back. Events start during the
+    halves at per-frame rates sp["h_same"] / sp["h_cross"]. A separate rng (seeded from the copy
+    seed) keeps steps 1-5 identical to the degrader without swaps."""
+    T = len(players)
+    out = players.copy()
+    ev_same = np.flatnonzero((rng.random(T) < sp["h_same"]) & graded)
+    ev_cross = np.flatnonzero((rng.random(T) < sp["h_cross"]) & graded)
+    teams = [np.flatnonzero(team_of_slot == k) for k in (0, 1)]
+    for t in ev_same.tolist():
+        slots = teams[int(rng.integers(2))]
+        here = slots[~np.isnan(out[t, slots, 0])]
+        if len(here) < 2:
+            continue
+        a, b = rng.choice(here, size=2, replace=False)
+        out[t:, [a, b]] = out[t:, [b, a]]
+    for t in ev_cross.tolist():
+        here = [s[~np.isnan(out[t, s, 0])] for s in teams]
+        if min(len(h) for h in here) == 0:
+            continue
+        a, b = rng.choice(here[0]), rng.choice(here[1])
+        e = min(T, t + max(1, int(rng.exponential(sp["cross_mean_s"] * fps))))
+        out[t:e, [a, b]] = out[t:e, [b, a]]
+    return out
+
+
+DM_MIN_S = 4.0            # [D] dead stretches shorter than this keep the frozen ball
+DM_SPEED = (5.0, 12.0)    # [M] set-up pass / roll speeds, m/s
+DM_DWELL = (0.4, 1.5)     # [M] time a player keeps the ball before passing it on, s
+DM_REST = (1.0, 4.0)      # [M] ball stationary at the restart spot before the kick, s
+DM_NEAR_M = 20.0          # [M] players taking part are within this distance of the restart spot
+DM_FAR_M = 25.0           # [M] a frozen ball further away than this is not rolled back (unseen)
+
+
+def dead_ball_moves(rng, ball, players, team_of_slot, labels, half, sp, fps):
+    """Step 8 (only when params has "deadmove"): the ball moves during dead time.
+
+    DFL freezes the ball while it is dead, so IDSSE has no dead ball that moves; the BAR-ATH
+    tracking does (set-up passes to the restart taker, kickabouts). Each dead stretch of at least
+    DM_MIN_S whose restart team is known (the next live label) gets, with probability
+    sp["p_stretch"], an episode that ends the stretch: the ball goes from where it lies (if within
+    DM_FAR_M) through 1-3 players of the restart team near the restart spot (dwell at each
+    player's feet), is played to the restart spot, and rests there until the kick. Earlier, a
+    stretch long enough gets extra kickabout episodes among nearby players of either team, one per
+    sp["kick_every_s"] seconds on average. Labels are unchanged (still D)."""
+    out = ball.copy()
+    dead = (labels == D) & (half > 0)
+    a, b = _runs(dead)
+    teams = [np.flatnonzero(team_of_slot == k) for k in (0, 1)]
+
+    def near_players(t, pos, slots, k):
+        d = np.linalg.norm(players[t, slots] - pos, axis=1)
+        ok = np.flatnonzero(~np.isnan(d) & (d < DM_NEAR_M))
+        if len(ok) == 0:
+            return []
+        pick = rng.choice(ok, size=min(k, len(ok)), replace=False)
+        return [int(slots[i]) for i in pick]
+
+    def episode(t, start_pos, holders, final, stop):
+        """Write the ball path from frame t; returns the frame after the last written one."""
+        pos = start_pos
+        for j in holders + [None]:
+            if t >= stop:
+                return t
+            if j is None:
+                target = final
+            else:
+                target = players[min(t, stop - 1), j]
+            if np.isnan(target).any():
+                continue
+            if pos is not None and not np.isnan(pos).any():
+                n = max(1, int(np.linalg.norm(target - pos) / rng.uniform(*DM_SPEED) * fps))
+                n = min(n, stop - t)
+                w = (np.arange(1, n + 1) / n)[:, None]
+                out[t:t + n] = pos + w * (target - pos)
+                t += n
+            if j is not None:
+                n = min(int(rng.uniform(*DM_DWELL) * fps), stop - t)
+                out[t:t + n] = players[t:t + n, j] + 0.3
+                t += n
+                pos = out[t - 1] if n else target
+            else:
+                pos = target
+        return t
+
+    for s, e in zip(a.tolist(), b.tolist()):
+        if e - s < DM_MIN_S * fps or e >= len(labels) or labels[e] not in (0, 1):
+            continue
+        if rng.random() >= sp["p_stretch"]:
+            continue
+        spot = ball[e]
+        if np.isnan(spot).any():
+            continue
+        rest = int(rng.uniform(*DM_REST) * fps)
+        holders = near_players(e - 1, spot, teams[int(labels[e])], int(rng.integers(1, 4)))
+        if not holders:
+            continue
+        # duration estimate: ~1.5 s per holder; start so the episode ends `rest` before e
+        t0 = max(s, e - rest - int(1.5 * fps * (len(holders) + 1)))
+        frozen = ball[t0]
+        start = frozen if np.linalg.norm(frozen - spot) <= DM_FAR_M else None
+        if start is None:
+            out[s:t0] = np.nan
+        t = episode(t0, start, holders, spot, e)
+        out[t:e] = spot
+        # kickabouts earlier in long stretches
+        free = t0 - s
+        n_kick = rng.poisson(free / fps / sp["kick_every_s"]) if sp["kick_every_s"] > 0 else 0
+        for _ in range(int(min(n_kick, free // (4 * fps)))):
+            k0 = s + int(rng.integers(0, max(1, free - 4 * fps)))
+            centre = ball[k0] if not np.isnan(ball[k0]).any() else spot
+            both = np.concatenate(teams)
+            hs = near_players(k0, centre, both, int(rng.integers(2, 4)))
+            if len(hs) < 2:
+                continue
+            k1 = episode(k0, None, hs[1:], players[k0 + 1, hs[0]], min(t0, k0 + 4 * fps))
+            if k1 < t0:
+                out[k1:min(t0, k1 + fps)] = out[k1 - 1]
+    # the tracker does not follow a teleport: hide the ball 0.5 s before each synthetic jump
+    step = np.linalg.norm(out[1:] - out[:-1], axis=1) * fps
+    changed = np.any(out != ball, axis=1) | np.any(np.isnan(out) != np.isnan(ball), axis=1)
+    for t in np.flatnonzero((step > 30.0) & dead[1:] & (changed[1:] | changed[:-1])).tolist():
+        out[max(0, t + 1 - fps // 2):t + 1] = np.nan
+    return out
 
 
 def swap_teams(match):

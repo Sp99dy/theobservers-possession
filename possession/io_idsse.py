@@ -161,10 +161,12 @@ def relabel_controlled(labels, half_blocks, min_frames):
     return out
 
 
-def load_labelled(match_id):
-    """Clean match with labels converted to the challenge's convention (config.CONTROL_MIN_S)."""
+def load_labelled(match_id, control_min_s=None):
+    """Clean match with labels converted to the challenge's convention (bridge control_min_s,
+    default config.CONTROL_MIN_S)."""
     m = load_match(match_id)
-    lab = relabel_controlled(m.labels, m.half_blocks(), int(round(config.CONTROL_MIN_S * m.fps)))
+    bridge = config.CONTROL_MIN_S if control_min_s is None else control_min_s
+    lab = relabel_controlled(m.labels, m.half_blocks(), int(round(bridge * m.fps)))
     from dataclasses import replace
     return replace(m, labels=lab)
 
