@@ -316,6 +316,19 @@ possessions (mean 15.9 s).
 python run.py        # -> out/TheObservers.csv
 ```
 
+**v5.4** (the current candidate; v5.2's decoder tuned on the mean over the 2 / 1 / 0.5 s
+conventions, plus broadcast replay evidence on D, `possession/replay.py`):
+
+```bash
+python run.py --method v54 --out out/TheObservers_v54.csv
+```
+
+Weights are v5.1's committed `models/v51/*.pt`; `models/v54/v5.json` holds the decoder, Law 9,
+rounding, 1 inference thread and the frozen replay log-ratio (2.195, estimated label-free by EM on
+BAR-ATH; reproduction does not re-run EM). Also reads the broadcast ATD and homography (lag 4014 /
+26920 frames). v5.4 sha256: `443667c05bfedc30f3c8125265fc5af62fde16f8a69f8ad485eae7a6e1b4a154`.
+v5.2 (`--method v52`): `5a9f6e23f91ca68382e94d0e6b352bea55a3893183a8c52b024c7bb003b508f6`.
+
 **v5.1** (NN ensemble + Law 9, the candidate submission):
 
 ```bash

@@ -128,6 +128,11 @@ def method_v53(use_tags=True):
     return method_v51(use_tags, version="v53")
 
 
+def method_v54(use_tags=True):
+    """v5.4: v5.2 + broadcast replay evidence on D (possession/replay.py, frozen log-ratio)."""
+    return method_v51(use_tags, version="v54")
+
+
 def describe(codes, match, dbg):
     """Ground-truth-free plausibility summary of a prediction (aggregates only)."""
     import numpy as np
@@ -167,6 +172,7 @@ METHODS = {
     "v51": method_v51,
     "v52": method_v52,
     "v53": method_v53,
+    "v54": method_v54,
 }
 DEFAULT_METHOD = "v4"
 

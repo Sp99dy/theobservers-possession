@@ -1,5 +1,26 @@
 # Handoff: where the model stands and what to try next
 
+## v5.4 (2026-11-17): v5.2 + broadcast replay evidence (adopted on Fadel's decision)
+
+Broadcasters cut to replays and close-ups mostly while play is stopped; the broadcast homography is
+invalid on those frames. `possession/replay.py`: replay[t] = homography invalid at broadcast frame
+t − 4014 (H1) / t − 26920 (H2) (the lag measured label-free for the ball fill). Replay frames get
+**+2.195 nats on D** after v5.2's rounding (then rounded again), before v5.2's decoder. 2.195 is the
+label-free log P(replay | D) / P(replay | live), estimated by hard EM on BAR-ATH from v5.2's own
+decoding (iterations +2.020 / +2.179 / +2.195; P(r|D) 0.659, P(r|live) 0.073), **frozen in
+`models/v54/v5.json` (`replay_llr`)**, so reproduction never re-runs EM. Prototype and EM:
+`scripts/replay_evidence.py` (bridge session).
+
+**Unscorable on IDSSE** (no broadcast feed): adopted on Fadel's decision with label-free evidence.
+vs v5.2: D share 0.433 → 0.442, possessions 282 → 277 (4.69 → 4.68 per live minute), short (≤ 4 s)
+H/A spells between two D 26 → 23; 1500 frames change (H→D 615, A→D 795, H→A 65, A→H 25); of 112
+long (≥ 10 s) live spells, 23 move a stoppage edge and none is split in the middle.
+
+`python run.py --method v54` → sha256
+`443667c05bfedc30f3c8125265fc5af62fde16f8a69f8ad485eae7a6e1b4a154` (= the prototype's; two runs
+identical; emission noise ±1e-4 changes 0 frames). Needs the broadcast `_atd.txt/.xml` and
+`_homography.csv` from the data bundle.
+
 ## v5.3 broadcast ball fill (2026-11-17): not adopted, v5.2 stays
 
 `possession/ballfill.py` fills tactical ball gaps from the broadcast ATD (constant per-half lag

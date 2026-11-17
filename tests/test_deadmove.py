@@ -73,3 +73,19 @@ def test_ballfill_fills_only_short_agreeing_smooth_gaps():
     bro[305] += 4.0                           # jump inside the gap -> not filled
     f = ballfill.gap_fill(tac, bro, valid, graded, 25)
     assert f[50:60].all() and f.sum() == 10
+
+
+def test_replay_mask_uses_lagged_invalid_homography(monkeypatch):
+    from types import SimpleNamespace
+    from possession import ballfill, replay
+    T = 50
+    valid = np.ones(100, dtype=bool)
+    valid[10:20] = False
+    monkeypatch.setattr(ballfill, "broadcast_ball", lambda pitch, data_dir=None: (None, valid))
+    monkeypatch.setattr(ballfill, "LAG", {1: 5})
+    half = np.ones(T, dtype=np.int8)
+    half[:3] = 0
+    m = SimpleNamespace(pitch=(105, 68), n_frames=T, graded=half > 0,
+                        half_blocks=lambda: [(1, 3, T)])
+    r = replay.replay_mask(m)
+    assert np.flatnonzero(r).tolist() == list(range(15, 25))

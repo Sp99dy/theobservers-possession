@@ -47,6 +47,12 @@ def emission_fn(members, model_dir=None):
     return emission
 
 
+def replay_mask_cached(match):
+    """v5.4: replay frames as 0/1 floats (possession/replay.py)."""
+    from . import replay
+    return replay.replay_mask(match).astype(np.float64)
+
+
 def predict(match, tags=None, use_tags=True, return_debug=False, model_dir=None):
     """model_dir: another model set with the same layout (v6 uses out/models_v6)."""
     torch.use_deterministic_algorithms(True)
@@ -56,9 +62,13 @@ def predict(match, tags=None, use_tags=True, return_debug=False, model_dir=None)
     if cfg.get("ballfill"):
         from . import ballfill
         match = ballfill.fill(match)[0]
+    d_bonus = None
+    if cfg.get("replay_llr"):
+        d_bonus = cfg["replay_llr"] * replay_mask_cached(match)
     if cfg.get("inference_threads"):
         torch.set_num_threads(int(cfg["inference_threads"]))
     return v2.predict(match, tags, use_tags=use_tags, return_debug=return_debug,
                       decoder=cfg["decoder"], feature_version=FEATURE_VERSION,
                       emission=emission_fn(cfg["members"], model_dir),
-                      law9=cfg.get("law9", False), quantize=cfg.get("quantize"))
+                      law9=cfg.get("law9", False), quantize=cfg.get("quantize"),
+                      d_bonus=d_bonus)
