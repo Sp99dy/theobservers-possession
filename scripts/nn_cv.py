@@ -33,6 +33,11 @@ def main():
     ap.add_argument("--threads", type=int, default=4)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--folds", nargs="*", default=None, help="subset of match ids (debug)")
+    ap.add_argument("--train-cache", default=None,
+                    help="read the TRAINING copies and their degrader params from this cache dir")
+    ap.add_argument("--eval-caches", nargs="*", default=None,
+                    help="score the held-out offset-9 copy from each of these cache dirs and write "
+                         "oof_nn_<name>.npz into each (default: POSSESSION_CACHE_DIR only)")
     args = ap.parse_args()
     torch.set_num_threads(args.threads)
     torch.use_deterministic_algorithms(True)
@@ -42,20 +47,35 @@ def main():
     t0 = time.time()
     with open(PARAMS_PATH) as handle:
         params = json.load(handle)
+    eval_dirs = [os.path.abspath(d) for d in (args.eval_caches or [config.CACHE_DIR])]
+    home_cache = config.CACHE_DIR
+    train_dir = os.path.abspath(args.train_cache or config.CACHE_DIR)
+    with open(os.path.join(train_dir, "degrader_params.json")) as handle:
+        tparams = json.load(handle)
+    eparams = {}
+    for d in eval_dirs:
+        with open(os.path.join(d, "degrader_params.json")) as handle:
+            eparams[d] = json.load(handle)
     fold_dir = os.path.join(config.REPO_DIR, "out", "nn_" + args.name)
     os.makedirs(fold_dir, exist_ok=True)
-    log("bridge {} s, arch {}, offsets {}".format(config.CONTROL_MIN_S, args.arch, offsets))
+    log("bridge {} s, arch {}, offsets {}, train {}, eval {}".format(
+        config.CONTROL_MIN_S, args.arch, offsets, train_dir, eval_dirs))
 
     copies = {}
+    config.CACHE_DIR = train_dir
     for mid in io_idsse.MATCH_IDS:
-        copies[mid] = [pnn.load_copy(mid, params, o, s)[:3] for o in offsets for s in (False, True)]
+        copies[mid] = [pnn.load_copy(mid, tparams, o, s)[:3] for o in offsets for s in (False, True)]
+    config.CACHE_DIR = home_cache
     log("loaded {} copies, {:.0f}s".format(sum(map(len, copies.values())), time.time() - t0))
 
-    oof = {}
+    multi = args.eval_caches is not None
+    oof = {d: {} for d in eval_dirs}
     for mid in args.folds or io_idsse.MATCH_IDS:
-        path = os.path.join(fold_dir, mid + ".npy")
-        if os.path.isfile(path):
-            oof[mid] = np.load(path)
+        paths = {d: os.path.join(fold_dir, mid + ("__" + os.path.basename(d) if multi else "")
+                                 + ".npy") for d in eval_dirs}
+        if all(os.path.isfile(p) for p in paths.values()):
+            for d, p in paths.items():
+                oof[d][mid] = np.load(p)
             log("fold {}: cached".format(mid))
             continue
         train = [c for m in io_idsse.MATCH_IDS if m != mid for c in copies[m]]
@@ -63,16 +83,24 @@ def main():
         seqs = [(pnn.prepare(X, mu, sd), y, g) for X, y, g in train]
         net = pnn.train(seqs, arch=args.arch, epochs=args.epochs, windows_per_epoch=args.windows,
                         seed=args.seed, log=log, hidden=args.hidden)
-        X, y, g, _ = model.copy_features(mid, params, *model.EVAL_COPY, 2)
-        ll = pnn.predict_frames(net, X, mu, sd)
-        ok = g & (y < 3)
-        acc = float(np.mean(np.argmax(ll[ok], 1) == y[ok]))
-        np.save(path, ll)
-        oof[mid] = ll
-        log("fold {}: frame acc {:.3f}, {:.0f}s".format(mid, acc, time.time() - t0))
+        torch.save({"arch": args.arch, "hidden": args.hidden, "n_in": seqs[0][0].shape[1],
+                    "mu": mu, "sd": sd, "state": net.state_dict()},
+                   os.path.join(fold_dir, mid + ".pt"))
+        for d in eval_dirs:
+            config.CACHE_DIR = d
+            X, y, g, _ = model.copy_features(mid, eparams[d], *model.EVAL_COPY, 2)
+            config.CACHE_DIR = home_cache
+            ll = pnn.predict_frames(net, X, mu, sd)
+            ok = g & (y < 3)
+            acc = float(np.mean(np.argmax(ll[ok], 1) == y[ok]))
+            np.save(paths[d], ll)
+            oof[d][mid] = ll
+            log("fold {} [{}]: frame acc {:.3f}, {:.0f}s".format(
+                mid, os.path.basename(d), acc, time.time() - t0))
     if args.folds is None:
-        np.savez(os.path.join(config.CACHE_DIR, "oof_nn_{}.npz".format(args.name)), **oof)
-        log("wrote oof_nn_{}.npz, total {:.0f}s".format(args.name, time.time() - t0))
+        for d in eval_dirs:
+            np.savez(os.path.join(d, "oof_nn_{}.npz".format(args.name)), **oof[d])
+            log("wrote {}/oof_nn_{}.npz, total {:.0f}s".format(d, args.name, time.time() - t0))
 
 
 if __name__ == "__main__":

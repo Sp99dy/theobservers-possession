@@ -288,12 +288,45 @@ def degrade(match, params, seed):
         dup[~active] = np.nan
         extra.append(dup[:, None, :])
         extra_team.append(team)
+    if "idswap" in params:
+        players = identity_swaps(np.random.default_rng([seed, 7]), players, match.team_of_slot,
+                                 match.graded, params["idswap"], fps)
     players = np.concatenate([players] + extra, axis=1)
     team_of_slot = np.concatenate([match.team_of_slot, np.array(extra_team, dtype=np.int8)])
 
     return replace(match, players_xy=players, ball_xy=ball, team_of_slot=team_of_slot,
                    players_speed=np.full(players.shape[:2], np.nan), oriented=False,
                    attack_sign={}, name="{}#deg{}".format(match.name, seed))
+
+
+def identity_swaps(rng, players, team_of_slot, graded, sp, fps):
+    """Step 7 (only when params has "idswap"): tracker identity swaps.
+
+    Same-team: two present players of one team exchange tracks from frame t on (permanent; only
+    the one-frame jump is visible). Cross-team: one present player per team exchange tracks for a
+    run of exponential length (mean sp["cross_mean_s"]), then swap back. Events start during the
+    halves at per-frame rates sp["h_same"] / sp["h_cross"]. A separate rng (seeded from the copy
+    seed) keeps steps 1-5 identical to the degrader without swaps."""
+    T = len(players)
+    out = players.copy()
+    ev_same = np.flatnonzero((rng.random(T) < sp["h_same"]) & graded)
+    ev_cross = np.flatnonzero((rng.random(T) < sp["h_cross"]) & graded)
+    teams = [np.flatnonzero(team_of_slot == k) for k in (0, 1)]
+    for t in ev_same.tolist():
+        slots = teams[int(rng.integers(2))]
+        here = slots[~np.isnan(out[t, slots, 0])]
+        if len(here) < 2:
+            continue
+        a, b = rng.choice(here, size=2, replace=False)
+        out[t:, [a, b]] = out[t:, [b, a]]
+    for t in ev_cross.tolist():
+        here = [s[~np.isnan(out[t, s, 0])] for s in teams]
+        if min(len(h) for h in here) == 0:
+            continue
+        a, b = rng.choice(here[0]), rng.choice(here[1])
+        e = min(T, t + max(1, int(rng.exponential(sp["cross_mean_s"] * fps))))
+        out[t:e, [a, b]] = out[t:e, [b, a]]
+    return out
 
 
 def swap_teams(match):
