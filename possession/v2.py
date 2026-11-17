@@ -34,10 +34,18 @@ def evidence_scale(ll, f):
     return float(np.median(np.abs(ll[close, 0] - ll[close, 1])) / C.V1_CLEAR_CALL_NATS)
 
 
+def quantize_ll(ll, q):
+    """Round to a grid of q (e.g. 1e-3 nats): decoding then sees identical inputs on any CPU unless
+    a value sits within float noise of a rounding boundary."""
+    return np.round(np.asarray(ll, dtype=np.float64) / q) * q
+
+
 def predict(match, tags=None, use_tags=True, return_debug=False, mdl=None, decoder=None,
-            feature_version=features.FEATURE_VERSION, emission=None, law9=False):
+            feature_version=features.FEATURE_VERSION, emission=None, law9=False, quantize=None):
     """emission: optional callable X -> (T, 3) log-probs replacing the HGB (used by v5).
-    law9: force D where the ball is out of play (rules.law9_mask), after all other terms."""
+    law9: force D where the ball is out of play (rules.law9_mask), after all other terms.
+    quantize: round the final log-likelihoods to this grid before decoding, so last-bit float
+    differences between CPUs / BLAS builds cannot flip the Viterbi path."""
     m = orient(match)
     if emission is None:
         mdl = mdl or model.load(MODEL_PATH)
@@ -60,6 +68,8 @@ def predict(match, tags=None, use_tags=True, return_debug=False, mdl=None, decod
     if law9:
         ll = rules.law9_override(ll, rules.law9_mask(base["ball_out"]))
 
+    if quantize:
+        ll = quantize_ll(ll, quantize)
     blocks = [(s, e) for _, s, e in m.half_blocks()]
     codes = cv.decode_ll(ll, blocks, decoder, fill=X)
     if return_debug:

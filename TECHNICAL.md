@@ -316,6 +316,19 @@ possessions (mean 15.9 s).
 python run.py        # -> out/TheObservers.csv
 ```
 
+**v5.1** (NN ensemble + Law 9, the candidate submission):
+
+```bash
+python run.py --method v51 --out out/TheObservers_v51.csv
+```
+
+It loads the committed IDSSE-trained weights and config in `models/v51/` (two BiGRUs and one TCN,
+1.6 MB; `torch==2.15.0` from requirements.txt) and never retrains. Inference runs on one CPU thread
+with torch's deterministic algorithms. The final log-likelihoods are rounded to 1e-3 nats before the
+Viterbi decoder, so last-bit float differences between CPUs or BLAS builds cannot change the path.
+Perturbing the emissions by ±1e-4 changes 0 frames. v5.1 sha256:
+`b8239637e98e0aa68e58f4426131890ad0f7bcf9fce82502b2beaa70a96b674b`.
+
 `run.py` loads the committed v4 model (`models/emission_v4.joblib`) and decoder settings
 (`models/decoder_v4.json`). It never retrains. v4 sha256:
 `ce5399e8bb93b6022e667726963f02b368efc25a4532cdc218be64d4854b92be`.

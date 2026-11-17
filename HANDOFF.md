@@ -1,5 +1,40 @@
 # Handoff: where the model stands and what to try next
 
+## v5.1 (2026-11-17, branch `fadel/nn`): v5 + Law 9, hardened for byte-identical rebuilds
+
+**What changed vs v5.** (1) **Law 9 override**: where the tracked ball is more than 1 m beyond a
+touchline or goal line for at least 5 frames (0.2 s), H and A get log-likelihoods 30 nats below D
+before decoding, so the decoder's minimum durations still apply (`rules.law9_mask` /
+`law9_override`). The constants come from the law and the existing 1 m margin; nothing was swept.
+The decoder was re-tuned with the rule active and came back with v5's settings. (2) **Committed
+weights**: the three IDSSE-trained members and the config live in `models/v51/` (1.6 MB, like
+`models/emission_v4.joblib`), so `run.py --method v51` loads them and never retrains. (3)
+**Cross-platform hardening**: the final log-likelihoods are rounded to 1e-3 nats before Viterbi
+(`v2.quantize_ll`, config `quantize`), and inference runs on 1 torch thread with deterministic
+algorithms (config `inference_threads`).
+
+| eval labels | v5 nested | **v5.1 nested** | v5.1 + rounding |
+|---|---|---|---|
+| 2 s | 0.7279 | 0.7264 (−0.0015) | 0.7264 (identical nested predictions) |
+| 1 s | 0.6824 | 0.6821 (−0.0003) | 0.6821 (identical) |
+| 0.5 s | 0.6411 | 0.6404 (−0.0007) | 0.6404 (identical) |
+
+Law 9 cannot gain on IDSSE: 99.8% of the 12 214 masked eval-copy frames are truly dead, and the NN
+already calls them D. On BAR-ATH (label-free), H/A frames on an out-of-play stretch go from 422 to 2
+and H/A spells touching one from 32 to 2. Adopted under its brief: non-inferior (≥ v5 − 0.002) at
+every bridge, plus that aggregate.
+
+**Reproduce**: `python run.py --method v51`. Expected sha256
+`b8239637e98e0aa68e58f4426131890ad0f7bcf9fce82502b2beaa70a96b674b`. Rounding and 1 thread change 0
+frames vs the unrounded 4-thread run, so the sha is unchanged. Two runs are identical (82 s on 1
+thread). `scripts/check_float_robustness.py` perturbs the ensemble emission by uniform ±1e-6 and
+±1e-4 (a stand-in for arm64 vs x86 / BLAS differences): 0 frames change, with or without rounding.
+**Still unchecked: an actual run on Windows x86.** To rebuild the weights instead of using the
+committed ones: the v5 commands below, then `train_nn.py ... --law9 --out-dir models/v51`
+(byte-identical on this Mac), and add `"quantize": 0.001, "inference_threads": 1` to its
+`v5.json`.
+
+
 ## v5 candidate (2026-11-16, branch `fadel/nn`): for Tobias to decide
 
 **What changed vs v4.** (1) Training labels use the **0.5 s label bridge** (`POSSESSION_CONTROL_MIN_S=0.5`)

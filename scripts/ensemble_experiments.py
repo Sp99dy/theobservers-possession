@@ -41,6 +41,8 @@ def main():
                     help="also write cache/nested_preds_<ensemble name>.npz (usable as --base)")
     ap.add_argument("--law9", action="store_true",
                     help="force D where the ball is out of play (rules.law9_mask) before decoding")
+    ap.add_argument("--quantize", type=float, default=None,
+                    help="round the ensemble log-probs to this grid before decoding (v5.1: 1e-3)")
     args = ap.parse_args()
     log = lambda s: print(s, flush=True)
     t0 = time.time()
@@ -57,6 +59,8 @@ def main():
         ll = np.mean([z[mid].astype(np.float64) for z in zs], axis=0)
         if args.law9:
             ll = rules.law9_override(ll, law9_eval_mask(mid, params))
+        if args.quantize:
+            ll = np.round(ll / args.quantize) * args.quantize
         items.append((ll, y, blocks_of(g)))
     log("members " + " + ".join(args.members))
     dp, best = cv.tune_decoder(items, start=base_dp)
@@ -69,7 +73,8 @@ def main():
         preds.append(cv.decode_ll(items[i][0], items[i][2], dpi, fill=3))
     ns = cv.pooled_score(items, preds=preds)
     log("NESTED      " + metrics.format_summary(ns))
-    name = "ens_" + "+".join(args.members) + ("_law9" if args.law9 else "")
+    name = "ens_" + "+".join(args.members) + ("_law9" if args.law9 else "") + (
+        "_q{:g}".format(args.quantize) if args.quantize else "")
     if args.eval_bridge is not None:
         name += "_e{:g}".format(args.eval_bridge)
     if args.save_nested:
