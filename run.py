@@ -123,6 +123,11 @@ def method_v52(use_tags=True):
     return method_v51(use_tags, version="v52")
 
 
+def method_v53(use_tags=True):
+    """v5.3 candidate: v5.2 + broadcast ball fill of tactical gaps (possession/ballfill.py)."""
+    return method_v51(use_tags, version="v53")
+
+
 def describe(codes, match, dbg):
     """Ground-truth-free plausibility summary of a prediction (aggregates only)."""
     import numpy as np
@@ -161,6 +166,7 @@ METHODS = {
     "v6": method_v6,
     "v51": method_v51,
     "v52": method_v52,
+    "v53": method_v53,
 }
 DEFAULT_METHOD = "v4"
 

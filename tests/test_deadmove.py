@@ -55,3 +55,21 @@ def test_law9_mask_needs_five_frames_and_override_forces_d():
     ll = np.log(np.full((30, 3), 1 / 3))
     ll2 = rules.law9_override(ll, m)
     assert np.all(np.argmax(ll2[m], 1) == 2) and np.array_equal(ll2[~m], ll[~m])
+
+
+def test_ballfill_keeps_only_runs_that_join_the_tactical_ball():
+    from possession import ballfill
+    T = 200
+    tac = np.full((T, 2), np.nan)
+    tac[:50] = [0.0, 0.0]
+    tac[150:] = [30.0, 0.0]
+    ball = tac.copy()
+    filled = np.zeros(T, dtype=bool)
+    ball[50:60] = [1.0, 0.0]          # joins (1 m from the tactical ball before it)
+    filled[50:60] = True
+    ball[140:150] = [10.0, 0.0]       # jumps 20 m to the tactical ball after it
+    filled[140:150] = True
+    ball[100:110] = [5.0, 0.0]        # no tactical ball within 1 s: unjoined
+    filled[100:110] = True
+    keep = ballfill._joined_runs(tac, ball, filled, 25)
+    assert keep[50:60].all() and not keep[140:150].any() and not keep[100:110].any()

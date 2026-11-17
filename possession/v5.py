@@ -52,6 +52,9 @@ def predict(match, tags=None, use_tags=True, return_debug=False, model_dir=None)
     model_dir = model_dir or MODEL_DIR
     with open(os.path.join(model_dir, "v5.json")) as handle:
         cfg = json.load(handle)
+    if cfg.get("ballfill"):
+        from . import ballfill
+        match = ballfill.fill(match)[0]
     if cfg.get("inference_threads"):
         torch.set_num_threads(int(cfg["inference_threads"]))
     return v2.predict(match, tags, use_tags=use_tags, return_debug=return_debug,

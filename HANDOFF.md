@@ -1,5 +1,15 @@
 # Handoff: where the model stands and what to try next
 
+## v5.3 (2026-11-17): v5.2 + broadcast ball fill (BAR-ATH input repair)
+
+`possession/ballfill.py`: where the tactical ATD has no ball, take the broadcast ATD's ball (constant
+per-half lag 4014 / 26920 frames, measured label-free by `scripts/measure_broadcast_lag.py`; valid
+homography; a filled run must join the tactical ball within 5 m at its edges). 3 879 graded frames
+filled. IDSSE has no broadcast feed, so the nested scores are v5.2's. `python run.py --method v53` →
+sha256 `4578703170958ade14bb88eaa82ec7aa60fc688c5f77244def6edadf7b7aa76b` (two runs identical);
+287 possessions, 4.74 per live minute. Needs the broadcast `_atd.txt/.xml` and `_homography.csv`
+from the data bundle.
+
 ## v5.2 (2026-11-17): v5.1 + a decoder tuned for every label convention
 
 BAR-ATH's label convention is unknown, so the selection metric is now the **mean nested spellF1
