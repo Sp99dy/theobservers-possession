@@ -8,7 +8,8 @@ tuned on. Kickoff and Smart Tagging layers and the segmental decoder are v4's co
 settings are the pooled-tuned ones from the chosen ensemble run (IDSSE CV, 2 s labels). Nothing
 here sees BAR-ATH labels.
 
-Weights are not committed (public repo): models live in POSSESSION_V5_DIR (default out/models_v5),
+Weights for v5.1+ are committed under models/v51 ... models/v55 (IDSSE-trained, a few MB) and loaded
+via model_dir; the original v5 set lives in POSSESSION_V5_DIR (default out/models_v5). All are
 regenerated deterministically by scripts/train_nn.py.
 """
 

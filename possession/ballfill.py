@@ -4,7 +4,7 @@ Both ATD feeds are in pitch coordinates but on different video timelines. The br
 is NOT aligned to the tactical one (games.py); the offset is constant within a half:
 tactical video frame t <-> broadcast video frame t - LAG[half]. LAG was measured label-free by
 scripts/measure_broadcast_lag.py: over a +-80k-frame search the median tactical-vs-broadcast ball
-distance is minimal at 4014 (H1, 0.80 m) and 26920 (H2, 0.85 m), the values other teams report.
+distance is minimal at 4014 (H1, 0.80 m) and 26920 (H2, 0.85 m), values reported in public sources.
 
 The broadcast ball is noisy (where both feeds see it, only 70-74% agree within 2 m), so the rule is
 conservative and all-or-nothing per gap. A gap = a run of graded frames without a tactical ball.

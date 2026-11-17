@@ -4,8 +4,14 @@ This is Team TheObservers' Phase 1 submission. For every frame of the BAR-ATH ta
 who has the ball: `H` (Barcelona, ball alive), `A` (Athletic, ball alive), `D` (dead ball), or `X`
 (not graded).
 
-> **Status: v5.5 is the default (`python run.py`, sha d7e4bcfe…; fallback v5.4 `--method v54`, sha 443667c0…; see HANDOFF.md / TECHNICAL.md §8). The
-> v4 description below is kept for `python run.py --method v4`.** A gradient-boosting classifier trained on IDSSE
+> **Status: v5.5 is the default (`python run.py`, sha256 d7e4bcfe…2a92; fallback v5.4,
+> `--method v54`, sha256 443667c0…a154).** Five neural sequence models (BiGRUs and a dilated TCN,
+> trained on corrupted IDSSE open data at a 0.5 s label bridge) give per-frame H/A/D evidence; a Law-9
+> out-of-play rule and broadcast replay evidence are added, and a minimum-duration Viterbi decoder
+> tuned on the mean spellF1 over the 2 / 1 / 0.5 s label conventions turns it into labels. Nested
+> IDSSE CV mean spellF1 0.6836. See `TECHNICAL.md`, `HANDOFF.md` and `experiments.md`.
+>
+> Earlier default, kept for `python run.py --method v4`: a gradient-boosting classifier trained on IDSSE
 > open data, which is corrupted to look like the BAR-ATH tracking, gives per-frame evidence. Its
 > features include ball-touch detection and the collective slowdown of players at stoppages.
 > Kickoff detection and a Smart Tagging prior are added, and a minimum-duration Viterbi decoder over
@@ -41,11 +47,16 @@ possession/
   cv.py                     leave-one-match-out CV and decoder tuning (all model selection)
   v2.py                     the v2 pipeline (M2)
   v3.py                     v2 + larger classifier + v1-rule blend (M3; fallback)
-  v4.py                     v2 pipeline on feature version 2: touch detection + slowdown (M3b, default)
+  v4.py                     v2 pipeline on feature version 2: touch detection + slowdown (M3b)
+  nn.py                     neural sequence emission models (BiGRU / dilated TCN), training and inference
+  v5.py                     v5.x pipeline: NN ensemble from models/v5*/v5.json + v4's layers (v5.5 = default)
+  replay.py                 broadcast replay evidence on D (v5.4+)
+  ballfill.py               broadcast ATD loading and the measured broadcast-to-tactical lag
   io_metrica.py             Metrica sample games 1+2 -> Match (secondary check only)
   stack.py                  second-stage context features (experiment, not adopted)
   video.py, video_detect.py M4 video ball detector -- experiment only, dropped, not used by run.py
-models/                     emission_v*.joblib + decoder_v*.json (committed; run.py never retrains)
+models/                     emission_v*.joblib + decoder_v*.json; v51/ v52/ v54/ v55/ NN weights + configs
+                            (committed; run.py never retrains)
 scripts/
   reproduce_baseline.py     byte-identity check against the organisers' baseline_*.csv
   public_check.py           public 5-minute window, sanity only (never used for selection)
@@ -112,4 +123,6 @@ python scripts/reproduce_baseline.py    # our pipeline vs the organisers' baseli
 ## Rules we follow
 
 No hand labels on BAR-ATH. No tuning on the public ground truth window. No human-produced data
-about BAR-ATH. No frame constants except the half boundaries in `games.py`. See `TECHNICAL.md`.
+about BAR-ATH. No frame constants except the half boundaries in `games.py` and the
+broadcast-to-tactical lag (4014 / 26920 frames, H1 / H2), measured label-free
+(`scripts/measure_broadcast_lag.py`) and used by the replay evidence. See `TECHNICAL.md`.

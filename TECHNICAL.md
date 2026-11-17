@@ -1,383 +1,325 @@
-# TheObservers — technical document (draft)
+# TheObservers: technical document
 
-*Draft, filled in as the milestones land (outline from SPEC §10). Current state: v4 (§5.0b) is the default of `run.py`; v2 (M2) was the last version submitted.*
+More Than a Hack 2027, phase 1 (BAR-ATH possession). Submitted model: **v5.5**.
+Code: https://github.com/Sp99dy/theobservers-possession (repository main branch).
 
-## 1. Approach in one paragraph
+---
 
-The ranking metric scores whole possessions, so a flicker inside a possession costs as much as a
-wrong possession. We therefore split the problem in two. First, per-frame **evidence** for H, A and D
-is computed from the tracking geometry. Second, a **segmental state-space decoder** turns that
-evidence into a few long, stable segments. The decoder is a hidden Markov / regime-switching model
-over {H, A, D} with switching costs and minimum durations, decoded by Viterbi. The evidence comes
-from a gradient-boosting classifier trained on **external** labelled tracking data (IDSSE / DFL open
-data). That data is first corrupted to look like the BAR-ATH automatic tracking, so the model learns
-from inputs as noisy as the ones it will see. The decoder's costs and durations are chosen by
-leave-one-match-out cross-validation on that external data. On held-out IDSSE matches (nested CV)
-this scores spellF1 0.643, against 0.389 for the hand-set rules of our v1. v4 adds features that
-detect ball touches from the ball's trajectory and the collective slowdown of the players at
-stoppages, and reaches 0.684 nested.
+## 1. Approach
 
-## 2. Assets used / dropped
+The ranking metric (spellF1) scores whole possessions, so a short flicker inside a possession costs
+about as much as a wrong possession. We therefore split the task in two:
 
-- **Tactical ATD**: core input (players, ball).
-- **Smart Tagging**: a weak prior added to the decoder's log-likelihoods (§5.3). It is never copied
-  across as labels.
-- **Homography + tactical video**: not used. Detecting the ball in the video to fill the 41% ball
-  gaps is a stretch goal.
-- **IDSSE / DFL open data** (external): training data for the evidence model and the decoder (§3).
-- **Broadcast video / ATD**: dropped. It is on its own unsynchronised timeline.
+1. **Evidence.** Neural sequence models read 60 s of tracking-derived features and give per-frame
+   log-probabilities for H, A and D.
+2. **Decoding.** A segmental HMM (switching costs plus minimum durations, exact Viterbi) turns the
+   evidence into a small number of stable segments.
+
+The evidence model never sees a BAR-ATH label. It learns from **external** labelled tracking: 7
+IDSSE / DFL matches whose tracking we corrupt to look like the BAR-ATH automatic tracking. Every
+model choice is made by **nested leave-one-match-out cross-validation on IDSSE** (the decoder is
+re-tuned without the held-out match).
+
+**v5.5, in one list:**
+
+- **Emission model:** the mean log-probability of five networks, all trained on the 7 IDSSE
+  matches with a **0.5 s control bridge** on the labels (§3):
+  two 2-layer BiGRUs (hidden 64, seeds 0 and 1) and a dilated TCN (6 residual blocks, dilations
+  1–32), at 5 fps in 60 s windows with 30 s overlap; a **switch-weighted BiGRU** (3× loss on steps
+  within 1 s of a label change); and a **12.5 fps BiGRU** (60 s windows). Input: 122 tracking
+  features ("feature version 2") plus one missing-value channel per column.
+- **Law 9 override:** where the tracked ball is more than 1 m beyond a touchline or goal line for at
+  least 5 frames (0.2 s), H and A are set 30 nats below D, before decoding.
+- **Rounding:** the final log-likelihoods are rounded to 1e-3 nats, so last-bit float differences
+  between CPUs cannot change the Viterbi path.
+- **Broadcast replay evidence:** on frames where the broadcast homography is invalid (a replay,
+  close-up or crowd shot), D gets +2.195 nats (§2, §5). The weight was estimated label-free by EM
+  on v5.2's decoding and is reused frozen.
+- **Kickoff detector and Smart Tagging prior** (unchanged since v1/v4): weak, BAR-ATH-only terms
+  added to the log-likelihoods.
+- **Decoder:** tuned nested on the **mean spellF1 over three possession conventions** (labels
+  bridged at 2 s, 1 s and 0.5 s), because the convention of the BAR-ATH ground truth is unknown.
+
+**Why this and not something else.** Hand-written rules (our v1) scored 0.389 nested on IDSSE;
+learned evidence scored far higher (§6). Per-frame gradient boosting saturated at about 0.68–0.69
+whatever we added; a sequence model reads the build-up before a turnover and the restart after a
+stoppage, and gained +0.03 at every convention. The segmental decoder enforces what the metric
+rewards: few, stable possessions.
+
+**How we got here.** v1 (14 Nov) was a rule-based evidence model with the same decoder: 0.389
+nested. v2 replaced the rules by a gradient-boosting classifier trained on degraded IDSSE: 0.643.
+v3 (a larger classifier plus the v1 rules, 0.666) was kept as a fallback only. v4 added
+ball-touch detection and collective-slowdown features: 0.6835. v5 (16 Nov) replaced the
+classifier by a three-network ensemble and moved the label bridge from 2 s to 0.5 s: 0.7279 at the
+2 s convention. v5.1 added the Law 9 override and byte-identical reproduction; v5.2 re-tuned the
+decoder on the mean over conventions (0.6801); v5.3 (broadcast ball fill) was not adopted; v5.4
+added the replay evidence; v5.5 (17 Nov) adds two members aimed at short possessions and
+re-tunes the decoder (0.6836).
+
+---
+
+## 2. Assets: used and dropped
+
+| asset | use |
+|---|---|
+| Tactical ATD (players, ball) | Core input. All features are team aggregates (46 slots are tracklets, not players), orientation-normalised per half. |
+| Smart Tagging | Weak prior in the decoder: attacking phases vote for the tagged side; set pieces add mild dead-ball evidence just before the tag and favour the tagged side after it; goals keep the ball dead until the next detected kickoff. Never copied across as labels. |
+| Broadcast homography (+ broadcast ATD timeline) | **Used since v5.4** as replay evidence: homography invalid at broadcast frame t − 4014 (1st half) / t − 26920 (2nd half) → +2.195 nats on D. |
+| Broadcast ATD ball | **Tried, dropped** (v5.3): a conservative fill of tactical ball gaps. 0 frames qualify (§6). |
+| Tactical video | **Tried, dropped:** a YOLO11n ball detector fine-tuned on ATD-projected positions (no human labels). The ball is a visible blob at only about 30% of ATD positions; the best attempt had 40–56% top-1 precision. Too unreliable to fill gaps. |
+| Tactical audio | **Checked, not used:** a tonal whistle detector finds 29–117 events depending on threshold; 52–64% fall in stretches v5 already calls dead. IDSSE has no audio, so it could not be validated, and throw-ins, corners and goal kicks have no whistle. |
+| Referee | Not in the ATD (all 46 slots belong to the home or away side). |
+| Public 5-minute window | Pipeline check only (§4). |
+
+**Credit.** The constant broadcast-to-tactical lag and the idea of using broadcast cut-aways as
+stoppage evidence come from public sources; we re-measured the lag and estimated the evidence
+weight ourselves, label-free. (`scripts/measure_broadcast_lag.py`: median tactical–broadcast ball
+distance 0.80 / 0.85 m at those lags; a blind ±80k-frame search lands at 4000 / 26900. The weight
+comes from EM, §5, not from the public ground truth.)
+
+---
 
 ## 3. Training data
 
-**IDSSE / DFL open data.** Bassek, Rein, Weber & Memmert (2025), *Scientific Data* 12, 195,
-doi:10.1038/s41597-025-04505-y, CC-BY 4.0. The set has 7 Bundesliga and 2. Bundesliga matches,
-about 11 hours of 25 fps tracking for all 22 players and the ball. The labels are DFL's official
-per-frame `BallStatus` (alive/dead) and `BallPossession` (home/away) flags. They were produced by
-DFL's data provider, not by us. **Nothing was labelled on BAR-ATH**, and no BAR-ATH labels were
-used for anything. The public window was run once per version as a bug check (§6).
+| dataset | source / licence | labelled by | amount | used for |
+|---|---|---|---|---|
+| **IDSSE / DFL open data** | Bassek, Rein, Weber & Memmert (2025), *Scientific Data* 12, 195, doi:10.1038/s41597-025-04505-y; CC-BY 4.0 | DFL's official data provider: per-frame `BallStatus` (alive/dead) and `BallPossession` (home/away) flags | 7 Bundesliga / 2. Bundesliga matches, about 11 h of 25 fps tracking; 2017 possessions at the 2 s convention | **Training of v5.5 (all 7)** and nested CV (leave one match out) |
+| PFF FC World Cup 2022 | PFF FC; registration; licence checked and confirmed by us | Per-frame H/A/D derived by our rule from PFF FC's event data; tracking is broadcast-derived | 64 matches available; 11 tested as extra training data | Tested, **not adopted** (§6): −0.017 nested |
+| Metrica sample games 1 and 2 | Metrica Sports public sample data | Events by Metrica; per-frame H/A/D derived by our rule from those events + 0.5 s bridge | 2 matches (339 / 308 possessions) | Tested, **not adopted** (§6): −0.025 alone, −0.007 mixed |
 
-**Label convention bridge.** DFL's possession flag follows *touches*: 4.6 possessions per minute,
-median 3.7 s, 37% shorter than 2 s. The challenge counts *controlled* possession: "a simple touch
-of the ball without control" is not a change, and a loose ball stays with the last team. We apply
-the written definition as a rule. A team change counts only once the new team keeps the ball for
-≥ 2 s ("a few seconds", lower end), and the first possessor after every restart is kept. This
-gives 3.0 possessions per minute and a mean of 11.0 s. That is the same regime as the challenge's
-published reference (3.4 per minute, 14.2 s), which was used only for this qualitative comparison.
-The 2 s value was not tuned.
+**No label comes from BAR-ATH.** Nobody labelled any BAR-ATH frame, clip or transition, and no
+constant was fitted to anything seen on BAR-ATH video. The only BAR-ATH-derived numbers in the
+model are label-free: the degrader's tracking statistics and the replay weight (estimated by EM from
+our own model's decoding, a pseudo-label method RULES.md allows).
 
-**IDSSE's dead-ball ball is a placeholder.** On 100% of dead-ball frames DFL's ball has exactly
-zero displacement: a frozen position, usually on or just past a line. During live play this happens
-on only ~0.5% of frames. The degrader below accounts for it.
+**Label bridge.** DFL's possession flag follows touches. The challenge counts controlled
+possession, so a team change in our training labels counts only once the new side keeps the ball
+for ≥ 0.5 s, and the first possessor after every restart is kept. This is a deterministic transform
+of DFL's flags. 0.5 s was chosen on nested IDSSE CV, where training at 0.5 s beat training at 2 s
+under every evaluation convention (2 s / 1 s / 0.5 s: 0.6962 / 0.6241 / 0.5838 vs 0.6835 / 0.5907 /
+0.5496, gradient-boosting model); for the BiGRU, training at 2 s lost 0.008 (0/7, §6). The bridge
+removes short spells but never delays a switch.
 
-## 4. Handling missing and noisy tracking
-
-Measured on the BAR-ATH tracking (aggregates only, no labels):
-- The ball is missing on 40.7% of graded frames, always in blocks longer than 2 s (median 10.7 s).
-- The provided ball `speed` channel is unusable: its maximum is 7 m/s. Speeds computed from ball
-  positions are realistic (median 5 m/s, p95 17 m/s), so the positions are not smoothed. We compute
-  all speeds from positions.
-- Slots are tracklets (46 slots, 22 players), so every feature is a team aggregate: nearest distance
-  to the ball per team, mean speed, counts, centroid.
-- The attacking direction is measured per half from the teams' median positions. Teams swap ends
-  at half-time, and coordinates are rotated so that home always attacks +x.
-
-**The degrader** (`possession/degrade.py`) makes clean IDSSE look like the BAR-ATH ATD. Every
-parameter is fitted to statistics of the BAR-ATH *tracking*, never to its labels:
+**Degrader.** `possession/degrade.py` corrupts clean IDSSE so that it looks like the BAR-ATH ATD.
+Every parameter is fitted to statistics of the BAR-ATH *tracking*, never to its labels:
 
 | statistic | BAR-ATH ATD | clean IDSSE | degraded IDSSE |
 |---|---|---|---|
 | ball missing, share of graded frames | 0.407 | 0.000 | 0.457 |
 | missing-run length, median / p90 (frames) | 268 / 845 | – | 268 / 989 |
-| ball missing, slowest / fastest player-speed decile | 0.90 / 0.10 | 0 / 0 | 0.87 / 0.26 |
-| visible ball > 1 m outside the pitch | 2.7% | ~6% | 1.9% |
-| players per team (mean) | 10.2–10.3 | 11.0 | 10.2 |
+| players per side (mean) | 10.2–10.3 | 11.0 | 10.2 |
 | player jitter, median second difference (m) | 0.0014 | 0.0100 | 0.0013 |
 
-- **Ball gaps** come from an alternating renewal process, with run lengths drawn from the ATD's
-  own gap lengths.
-- **Gap starts** have a per-frame hazard with three factors:
-  - the true state (live/dead), the factor that lets the gaps carry information;
-  - the ball's distance to the nearest line, using the ATD's measured relative hazard;
-  - slow play, exp(β·(1.5 − speed)).
-- **Calibration.** The live and dead rates and β were set by simulation, so that degraded IDSSE
-  reproduces the ATD's *observable* curve of missing-ball share by player-speed decile. Player
-  speed is a quantity both datasets share without labels.
-- **Out-of-pitch balls** are thinned to the ATD's share. Players get dropouts and short duplicate
-  tracklets, and both players and ball are smoothed to the ATD's jitter.
-- **Team-swap augmentation.** Each corrupted copy is also mirrored: rotated 180°, with home and
-  away exchanged. This keeps the classifier team-agnostic.
+Ball gaps follow a renewal process with the ATD's own run lengths and a hazard that depends on the
+true state, the distance to the nearest line and slow play. Players get dropouts, short duplicate
+tracklets and smoothing. Each copy is also mirrored (rotated 180°, H and A exchanged). The networks
+train on 9 independent corruptions per match (offsets 0–8) plus mirrors; offset 9 is the held-out
+evaluation copy. Ablation (v2 era): the degrader is worth +0.09 spellF1.
 
-## 5. Model and possession rules
+---
 
-### 5.0 v2 (submitted): learned evidence
+## 4. What we did not do
 
-- **Features** (`features.design_matrix`, 89 columns). The same code path builds them for IDSSE and
-  for BAR-ATH. They do not depend on player identity and are orientation-normalised:
-  - the ball: presence, position, distance to the lines, speed computed from positions, out of
-    pitch;
-  - the nearest home and nearest away distance to the ball, and their margin;
-  - across ball gaps: which team had close control when the ball was last seen and when it is next
-    seen, and how far away in time that was;
-  - team shape: centroids, spreads, defensive and forward lines, own-half shares;
-  - motion: speeds and forward velocities per team;
-  - centred rolling means over ±0.5 s, ±2 s and ±5 s. This is offline labelling, so using future
-    frames is allowed.
-- **Classifier**: scikit-learn 1.9.1 `HistGradientBoostingClassifier` over H, A and D.
-  - 300 iterations, 31 leaves, balanced class weights, a fixed `random_state` and no early stopping.
-  - Training uses every 5th frame of 4 copies of each of the 7 IDSSE matches: 2 corruption seeds,
-    each also mirrored.
-  - Retraining reproduces the committed model file byte for byte.
-- **Emissions** are the classifier's log-probabilities. Because training used balanced classes,
-  they act as scaled likelihoods under a flat prior.
-- **BAR-ATH-only layers**: the kickoff detector (5.1) and the Smart Tagging prior (5.3) are added on
-  top, converted into the classifier's units.
-  - The conversion factor is measured without labels. On clear close-control frames the classifier
-    gives 3.8 times the home-vs-away evidence that the v1 rules give (4.6 nats against 1.2).
-  - These terms are multiplied by 3.8, so a tag keeps the same weight relative to a clear ball
-    observation as it had in v1.
-- **Decoder settings**, chosen on IDSSE CV (coordinate descent on pooled out-of-fold spellF1):
-  - evidence weight 3.0 per 0.2 s step;
-  - team switch 2 nats;
-  - entering a stoppage 10 nats, leaving one 5 nats;
-  - minimum possession 2.4 s, minimum stoppage 4 s;
-  - dead-ball bias +0.5 nats.
+- **No hand labels on BAR-ATH**, in any amount or for any purpose.
+- **No tuning or selection on the public 5-minute window.** v5.4 was scored on it once, after it
+  had been chosen, as a pipeline check (frame alignment, file format): spellF1 0.619, 90% bootstrap
+  interval 0.41–0.81, 17 possessions. That number was never used for any choice; v5.5 was chosen on
+  nested IDSSE CV alone, on a bar declared before the run.
+- **BAR-ATH never went to a cloud service or a cloud LLM**: no raw files, extracts, frames, video or
+  screenshots. Only aggregates (scores, counts) left the machines.
+- **The football expert's viewer review informed feature and rule ideas only.** Our teammate watched
+  BAR-ATH clips in a local viewer (allowed by RULES.md for understanding the data) and described
+  failure *types* in words. Nothing from it became a label, a fitted constant, or a selection
+  criterion; every idea was then tested on IDSSE.
 
-### 5.0b v4 (M3b, the default): touch and slowdown features
+---
 
-v4 is the v2 pipeline with feature version 2 (`features.design_matrix(..., version=2)`, 122
-columns). It came out of the live-play loss breakdown (`scripts/diag_liveplay.py`): most lost
-possessions are short ones after interceptions or clearances, where the nearest player is a poor
-guide to who has the ball.
-- **Touch detection** (`features.detect_touches`): a ball contact is a change in ball velocity of
-  at least 3 m/s with a player within 3 m; the team of the nearest player is the toucher. Features:
-  team of the last and next touch, time since and until them, touch balance over the surrounding
-  seconds. On BAR-ATH this finds about 14 touches per minute (degraded IDSSE: 8–12).
-- **Slowdown** (`features.slowdown_features`): mean speed over the previous and next 3, 6 and 12 s of
-  all players and of the 4 players nearest the ball, and the share of players under 2 m/s. Players
-  slow down together when play stops (fouls, offsides, the ball going out).
-- **Classifier**: same HGB settings as v2. A larger model (1000 trees, 127 leaves) gave +0.006
-  nested, within noise, so it was not adopted.
-- **Decoder** (re-tuned on IDSSE CV for this classifier): evidence weight 4.5, team switch 4.5
-  nats, entering a stoppage 7, leaving one 5, minimum possession 2.4 s, minimum stoppage 3 s,
-  dead-ball bias +0.5.
-- The kickoff and Smart Tagging layers are unchanged; their conversion factor is re-measured for
-  the new classifier (3.9).
+## 5. Possession rules: where we drew the line
 
-The v1 rules below remain the documented baseline (`run.py --method v1`). v2 reuses their kickoff
-detector and Smart Tagging prior.
+The model is learned, so most rules are not `if` statements. Each enters in one of three places:
+**labels** (how the 0.5 s bridge builds the training targets from DFL's flags), **features** (what
+the networks can see), or the **decoder** (switch costs, minimum durations, explicit overrides).
 
-## 5b. v1 rules (M1 baseline)
+| situation | our line | where it lives |
+|---|---|---|
+| **Touch vs control** | A team change needs the new side to keep the ball. One touch, a block or a deflection that does not lead to control is not a change. | Labels: 0.5 s bridge. Features: touch detector (ball velocity change ≥ 3 m/s with a player within 3 m; side of last / next touch). |
+| **Proximity is not possession** | Being near the ball is never enough; a pass running past an opponent stays with the passer. | Features: touches and ball motion, not only nearest-player distance. |
+| **When the switch happens** | At the winning side's touch, not back-dated to a pass in flight and not delayed. | Labels (DFL flips at the touch; the bridge never delays). If the winning run starts with a deflection, the switch is at the deflection. A constant switch delay was tested on IDSSE and lost (§6). The BAR-ATH reference appears to credit some interceptions slightly later (≈0.6 s, after the first controlled action); we did not fit that, since the only evidence is the public window. |
+| **Loose balls and 50/50s** | The ball stays with the last side until one side comes out with control; the change is placed at the first touch of the winner's run. | Labels (bridge removes back-and-forth spells shorter than 0.5 s); decoder minimum possession 1.6 s. |
+| **Aerial duels** | Winning the header is a possession only if the side keeps the ball afterwards. | As touch vs control. |
+| **Tackle followed by a foul** | The fouled side keeps the ball; the ball is dead from the foul. | Labels (DFL dead at the whistle); slowdown features (all players slow together). |
+| **Advantage** | Ordinary live play; possession changes only if the opponent gains control. | No special handling. |
+| **Keeper** | A catch is a possession; a parry or punch is a touch like any other. | Learned from the DFL labels like any other player. |
+| **Ball out (Law 9)** | Dead from the moment the ball is out, whatever the players do next. | Labels (DFL `BallStatus`); features (ball beyond a line, last sighting heading out); **override**: tracked ball > 1 m out for ≥ 5 frames forces D. Constants come from the law and the existing 1 m margin; nothing was swept. |
+| **Whistle / offside** | Dead from the decision, even if players play on for a few seconds. | Labels; collective-slowdown features. |
+| **Replays and close-ups on the broadcast** | Broadcasters cut away mostly while play is stopped, so a cut-away is evidence (not proof) of a dead ball. | +2.195 nats on D where the broadcast homography is invalid at the measured lag. Added after rounding, then re-rounded; the decoder's minimum durations still apply. |
+| **Slow build-up** | Never dead because it is slow. | Slowdown features use all players and the ball's own movement, not speed alone. |
+| **Restarts** | The restart side owns the ball from the restart. For throw-ins, corners and goal kicks that is the side that did not touch the ball last. | Labels (first possessor after a restart is kept); Smart Tagging set pieces; kickoff detector (≥ 85% of each side in its own half, players still, for ≥ 3 s). |
+| **When a restart goes live** | At the restart kick or throw. | Labels: IDSSE goes live at the restart kick (measured on IDSSE by our label builder). The BAR-ATH reference sometimes goes live later, after the first pass; we accept the reference as the grader but did not fit a delay to the public window. See §7. |
+| **Ball not tracked** | The last side keeps the ball unless the evidence on both sides of the gap (control when last and next seen, team shape) says otherwise. | Features across ball gaps; the degrader trains on BAR-ATH-like gaps. |
 
-### 5.1 Evidence (nats per frame)
+**Decoder (v5.5).** Evidence is averaged over 0.2 s steps. Settings, tuned nested on the mean over
+the three conventions: step weight 1, team-switch cost 0, entering D 7 nats, leaving D 5, minimum
+possession 8 steps (1.6 s), minimum stoppage 15 steps (3 s), D bias +0.5. Minimum durations are
+exact (chain-state expansion). Each half is decoded separately.
 
-- **Dead vs live, z**:
-  - Mean player speed (1 s window), linear around the 37.5% quantile of the match's own speed
-    distribution. 37.5% is the share of time a football match is typically dead.
-  - Ball beyond a line by more than 1 m: strong dead.
-  - Ball missing: weakly dead.
-  - Ball moving faster than 4 m/s: live.
-  - Ball standing still: weakly dead.
-- **Home vs away, y**: the gap between the nearest home and nearest away player to the ball, weighted
-  by how close the nearest player is (close control is strong evidence, a ball in flight weak). Plus
-  a very weak territory term.
-- **Kickoffs** (law 8: every player in his own half). We detect stretches of at least 3 s where
-  ≥85% of each team is in its own half while players stand still. These are strong dead evidence, and
-  the team with a player nearest the centre spot gets the ball afterwards. A half whose graded span
-  begins with such a line-up is dead until the kickoff. Six kickoffs were found: the second-half
-  start and the four restarts after goals. No open-play false positives. No frame constants are used.
+**Replay weight.** 2.195 = log P(replay | D) / P(replay | live), estimated by hard EM on BAR-ATH from
+v5.2's own decoding (iterations +2.020 / +2.179 / +2.195; P(r | D) 0.659, P(r | live) 0.073). It is
+frozen in `models/v55/v5.json` (`replay_llr`) and was not re-estimated for v5.5, so reproduction
+never runs EM. The bonus is added to the frame log-likelihoods before the decoder's step scaling,
+so its weight relative to the network evidence is the same as under v5.4. No labels are involved.
 
-### 5.2 Decoder
-
-- Evidence is averaged over 0.2 s steps, each treated as one observation. This discounts the strong
-  dependence between neighbouring frames.
-- Minimum durations: possession ≥ 1 s, stoppage ≥ 2 s. They are implemented exactly by chain-state
-  expansion (a semi-Markov model).
-- Switch costs:
-  - Team change: 4.5 nats, about 0.75 s of typical close control. The definition asks for
-    *controlled* possession, and a touch or deflection lasts less than that.
-  - Entering a stoppage: 5 nats. Leaving one: 3 nats.
-- Each half is decoded separately, with a flat initial distribution.
-
-### 5.3 Smart Tagging prior
-
-- Attacking phases vote for the tagged team. "Defending…" and "Defensive transition" vote for the
-  other team. Each vote is 0.25 nats/frame, a sixth of a clear nearest-player call.
-- Set pieces add mild dead-ball evidence just before the tagged start, and favour the tagged team
-  just after it.
-- Goals make the ball dead until the next detected kickoff.
-- One overall scalar weight (1.0). The terms were sized by reasoning, not by score.
-
-Every value in `possession/config.py` carries its source: football reasoning, a measurement of
-BAR-ATH *tracking*, or a decoder design argument.
+---
 
 ## 6. Results
 
-**IDSSE leave-one-match-out CV** is the only basis for model selection.
-- Each match is scored on a held-out corruption that training never saw, using the organisers' own
-  `possession_metrics`.
-- Scores are pooled over all 14 halves, which contain 2017 true possessions.
+All scores are **nested** leave-one-match-out spellF1 on the 7 IDSSE matches, each scored on a
+held-out corruption, with the organisers' metric. "Mean" is the mean over the 2 s, 1 s and 0.5 s
+label conventions; since 17 Nov it is our selection metric, with a bar of ≥ +0.003 mean and ≥ 5/7
+matches won.
 
-| version | spellF1 | macroF1 | possessions (GT 2017) | mean duration (GT 11.0 s) |
-|---|---|---|---|---|
-| v1 rules (no tags: IDSSE has none) | 0.389 | 0.788 | 1148 | 19.5 s |
-| v2 evidence, v1 decoder settings | 0.633 | 0.896 | 1595 | 14.0 s |
-| v2, decoder tuned on all folds (in-sample for the 7 decoder values) | 0.652 | 0.897 | 1716 | 12.8 s |
-| **v2, nested** (decoder re-tuned without the held-out match) | **0.643** | **0.895** | 1701 | 13.0 s |
+| model | 2 s | 1 s | 0.5 s | mean | note |
+|---|---|---|---|---|---|
+| v1 rules | 0.389 | – | – | – | |
+| v2 gradient boosting | 0.643 | – | – | – | |
+| v4 (touch + slowdown features) | 0.6835 | 0.5907 | 0.5496 | – | decoder re-tuned per convention |
+| v4 trained at 0.5 s bridge | 0.6962 | 0.6241 | 0.5838 | – | decoder re-tuned per convention |
+| v5 NN ensemble | 0.7279 | 0.6824 | 0.6411 | – | decoder re-tuned per convention; 7/7 wins vs the row above at each convention |
+| v5.1 (+ Law 9, rounding; one 2 s-tuned decoder) | 0.7264 | 0.6585 | 0.6101 | 0.6650 | |
+| v5.2 (one decoder tuned on the mean) | 0.7201 | 0.6825 | 0.6377 | 0.6801 | +0.0151 vs v5.1, wins 6/7 |
+| v5.4 = v5.2 + replay evidence | = v5.2 | = v5.2 | = v5.2 | = v5.2 | replay is unscorable on IDSSE (no broadcast); fallback |
+| **v5.5 = 5 members, re-tuned decoder** | 0.7147 | 0.6890 | 0.6470 | **0.6836** | +0.0035 vs v5.2/v5.4, wins 5/7; the only combination tested, declared in advance |
 
-- Per-match v2 spellF1 ranges from 0.55 to 0.70. The mean over matches is 0.654, with a 90%
-  bootstrap CI of 0.621–0.682.
-- The classifier alone, taking the most likely label per frame, is 90.7% accurate.
-- Almost all of the gain over v1 comes from the learned evidence. The decoder search surface is
-  flat: different settings move spellF1 by about ±0.01.
-- **Ablations and refinements** (same CV; "nested" re-tunes the decoder without the held-out
-  match). Each row changes one thing relative to v2:
+v5.5 gives up 0.005 at the 2 s convention for +0.007 at 1 s and +0.009 at 0.5 s. (v5.2 had already
+traded 0.006 at 2 s for +0.024 at 1 s and +0.028 at 0.5 s against a 2 s-tuned decoder.) Each new
+member alone did not clear the bar (below), the two together did.
 
-  | variant | spellF1 | reading |
-  |---|---|---|
-  | ball features only (tuned) | 0.491 | |
-  | ball + team shape, no motion (tuned) | 0.555 | team shape +0.06, motion +0.10 |
-  | trained on clean IDSSE, no degrader (tuned) | 0.566 | the degrader is worth +0.09 |
-  | plain HMM, no minimum durations (nested) | 0.637 | minimum durations +0.006 |
-  | split dead-ball states D_after_H / D_after_A (nested) | 0.646 | noise. The restart goes to the team that had the ball only 48% of the time |
-  | 8 corrupted copies per match instead of 4 (nested) | 0.645 | no gain |
-  | kickoff layer evaluated on IDSSE (nested) | 0.644 | neutral |
-  | larger classifier: 600 trees, 63 leaves (nested) | 0.654 | capacity helps |
-  | larger classifier: 1000 trees, 127 leaves (nested) | 0.661 | capacity helps further |
-  | 600/63 + v1 rule evidence at weight 0.35 (nested) | 0.658 | ensemble adds a little |
-  | 1000/127 + v1 rule evidence at weight 0.35 (nested) — **v3**, fallback | 0.666 | +0.004 over capacity alone, noise |
-  | **feature version 2: touch + slowdown (nested) — v4** | **0.684** | per-match 0.688, CI 0.668–0.707 |
-  | feature v2 without touch features (nested) | 0.676 | slowdown alone +0.034 |
-  | feature v2 without slowdown features (nested) | 0.677 | touch alone +0.034; the two overlap |
-  | feature v2 + 1000 trees, 127 leaves (nested) | 0.689 | +0.006, noise; not adopted |
+**On BAR-ATH (label-free aggregates only).** v5.5 predicts 289 possessions (mean 12.2 s), D share
+0.444; 2365 frames differ from v5.4 (277 possessions, D share 0.442). Under v5.5 the replay evidence
+changes 1430 frames (1500 under v5.4) and raises the D share by 0.009 in both. Law 9 (v5.1 vs v5):
+H/A frames on an out-of-play stretch 422 → 2.
 
-- **What v2 misses is short possessions.** Recovered (same team, IoU ≥ 0.5) by true duration:
+### Tried and not adopted
 
-  | true duration | under 2.5 s | 2.5–5 s | 5–10 s | 10–20 s | 20–40 s | over 40 s |
-  |---|---|---|---|---|---|---|
-  | recovered | 20% | 41% | 63% | 86% | 91% | 99% |
+All on nested IDSSE CV, mean metric, against v5.2 (0.6801) unless stated.
 
-  Possessions under 5 s are 38% of all true possessions.
+| experiment | result | why not |
+|---|---|---|
+| **PFF WC2022 (11 matches) as extra training data** | 0.6635 (−0.017, 1/7); mixed with v5.2 at weight 0.5 / 0.33: −0.0023 / −0.0008 (3/7 each) | worse. Likely causes: event-derived labels give fewer, longer possessions (2.75–3.74 per min vs 3.5–4.9 on IDSSE), and about 60% of player positions are estimated |
+| **Metrica games 1+2 as extra training data** | members trained with Metrica alone 0.6552 (−0.025, 0/7); mixed with v5.2 at 0.5: 0.6729 (−0.007, 2/7) | worse; event-derived labels are coarser (fewer, longer possessions, half the dead share) |
+| v6: synthetic ball movement during dead time | members alone 0.6722 (−0.0079, 3/7); mixed equally with v5.2 0.6802 (+0.0001, 3/7); mixed at 0.33 0.6787 (−0.0014, 2/7) | no gain (see §7) |
+| Feature v3: pressure / control / relative-speed features | vs v5.5: −0.0031 mean, +0.0065 at 2 s, wins 2/7 | worse on the mean |
+| BiGRU trained at the 2 s bridge | −0.008 (0/7); in v5.5 −0.010 (0/7) | 0.5 s bridge better |
+| 12.5 fps BiGRU alone (swapped for one GRU) | +0.0002 (5/7) | a tie; kept only as a v5.5 member |
+| Switch-weighted BiGRU alone | +0.0018 (4/7) | below the bar; kept only as a v5.5 member |
+| 120 s window BiGRU | +0.0005 (4/7) | 60 s context suffices |
+| 24 epochs instead of 12 | +0.0001 (5/7) | no gain |
+| Decoder grid with large team-switch costs (up to 30) and long minimum stoppage | +0.0000: the same decoder is chosen in every fold | no effect |
+| Boundary refinement with our own touch evidence | −0.0003 (2/7) | no gain |
+| Team-swap test-time augmentation | +0.0010 (4/7) | below the bar; members already train on mirrors |
+| 7-member ensemble (4 GRU + 3 TCN seeds) | −0.0005 (4/7) | more seeds alone do not help |
+| Conservative broadcast ball fill (v5.3) | 0 frames qualify (150 gaps; 17 gaps ≤ 3 s hold 75 frames, none passes the edge check) | nothing to fill |
+| Consensus / minimum-Bayes-risk over 26 decodings | −0.0020 (2/7) | worse |
+| Emission-gated short spells | +0.0000: the mean-tuned decoder never opens the gate (7/7 folds) | no effect |
+| Constant switch delay 0.2 / 0.4 / 0.6 s | −0.0048 / −0.0144 / −0.0314; nested picks 0 s | labels flip at the touch |
+| Snap stoppage start to ball exit | ±0.0000; nested picks off | almost never fires |
+| Restart-side dead states | +0.0008 (4/7) | below the bar |
+| Stacking (second-stage model on stage-1 outputs; v4 era, 2 s) | context-only +0.0057 (4/7, one match carries it); with raw features −0.013; fully nested −0.008 | noise or worse |
+| Wrong-side swap degrader (v5 era, 2 s) | −0.003 / +0.001 | no gain |
+| Identity-swap degrader (fitted to BAR-ATH's 4.9 jumps/min) | not evaluated: feature build stalled at the hard stop | no result in time |
 
-**Secondary check: Metrica sample games 1 and 2** (public, `scripts/metrica_check.py`). These are
-Metrica's own tracking and events.
-- **Labels.** There is no per-frame possession, so H/A/D labels are derived from the events
-  (`possession/io_metrica.py`):
-  - the team of the last possession event owns the ball;
-  - the ball is dead from a stoppage (ball out, a shot out or a goal, a foul, offside) until the
-    next set piece or goal kick;
-  - then the same 2 s control rule as for IDSSE.
+Earlier (v2–v4 era), also within noise or worse: a touch-aware decoder (+0.002), HGB ensembles
+(≤ +0.008), split dead-ball states (+0.004), a short-possession post-filter (−0.003).
 
-  This gives 2.6–2.8 possessions per minute (mean 16–17 s).
-- **Why it is useful.** The tracking is not degraded, but its ball is already missing on about 40%
-  of frames, as in BAR-ATH.
-- **Use.** Never used to tune anything. It only checks whether the ranking chosen on IDSSE holds on
-  another provider's tracking.
+### Where the remaining error is
 
-| version | spellF1 | macroF1 | possessions (GT 509) |
-|---|---|---|---|
-| organisers' baseline rule (nearest player, smooth 50) | 0.425 | 0.737 | 943 |
-| v1 rules (no tags) | 0.603 | 0.760 | 380 |
-| **v2** (no tags) | **0.702** | **0.779** | 441 |
+An oracle decomposition on v5.2's nested predictions (mean 0.6801) replaces one part of the
+prediction by the truth at a time. A perfect alive/dead mask adds only +0.004. The true side during
+live play adds **+0.259** (this includes cutting our spells at the true changes). Snapping our
+boundaries to true ones within ±1 s adds +0.029, but refining boundaries with our own evidence gave
+−0.0003, so that gain is not reachable with the current evidence. Even the truth with every
+possession under 2 s merged away scores only 0.861 on the mean (0.979 at 2 s, 0.768 at 0.5 s): the
+ceiling for any decoder with a 2 s minimum. The error is therefore almost all *which side has the
+ball in live play*, not stoppages.
 
-The ranking holds: baseline, then v1, then v2.
+---
 
-**Public 5-minute window — sanity check only, not used for any selection.** Each version was run
-once.
+## 7. Limitations
 
-| version | spellF1 | macroF1 | possessions (GT 17) | mean duration (GT 14.2 s) |
-|---|---|---|---|---|
-| organisers' baseline_smooth50 | 0.326 | 0.621 | 26 | 10.8 s |
-| v1 without Smart Tagging | 0.400 | 0.683 | 11 | 25.6 s |
-| v1 | 0.443 | 0.718 | 11 | 25.2 s |
-| v2 without Smart Tagging | 0.462 | 0.763 | – | – |
-| **v2 (submitted)** | **0.514** | **0.768** | 11 | 25.1 s |
-| v3 (fallback) | 0.465 | 0.793 | 14 | 19.4 s |
-| **v4 (default)** | 0.493 | 0.810 | 13 | 20.8 s |
+- **Missed short possessions.** On IDSSE (v5, 2 s convention) the model misses 51% of true
+  possessions of ≤ 3 s (184 of 364). In 61% of those misses the emission already shows the right side
+  for ≥ 0.3 s, and the decoder's minimum duration suppresses it. Typical cases: aerial balls, spells
+  inside ball gaps, a ball lost straight back, the first touch after a restart. The mean-tuned
+  decoders admit more short spells (v5.2: short-spell recall at 2 s 0.495 → 0.657, precision 0.672
+  → 0.512), and v5.5's minimum possession is 1.6 s, but most short possessions remain hard.
+- **Ball moved during dead time.** On BAR-ATH the ball is often moved while play is stopped (set-up
+  passes to the restart taker, kickabouts during celebrations, VAR, substitutions): inside v5-predicted
+  stoppages the ball is tracked on 17% of frames and moving on 40% of those, with a hand-over in 7%
+  of stretches. IDSSE freezes the dead ball (moving on 0.4% of dead frames, no hand-overs), so the
+  model never learned this and sometimes calls it a 2–4 s possession. Our synthetic fix (v6) cut such
+  spells on BAR-ATH (short H/A between two D: 21 → 6) but did not gain on IDSSE, alone or mixed, and
+  our standard evaluation cannot reward it. The replay evidence and v5.5's 3 s minimum stoppage
+  address part of it.
+- **Restart go-live convention.** Our labels go live at the restart kick. The BAR-ATH reference may go
+  live later; we did not fit a delay, because the only evidence is a few public-window restarts. A
+  start 0.5 s late on a 10 s possession still has IoU 0.95, so the spellF1 cost is small.
+- **Tracking errors not in the training noise.** The away goalkeeper's track sits in the home box
+  next to the home keeper for 6 350 (1st half) + 9 595 (2nd half) ≈ 16k frames, a median 6 m apart;
+  which track is the real keeper cannot be told label-free, so we did not repair it. Wrong-side
+  tracklets near duels: a side has 12+ players on 7.7% / 4.6% of frames per half; identity jumps
+  (> 20 m/s) occur 4.9 times per minute, 0.142 per minute onto an opponent. Our degrader does not
+  simulate wrong-side tracklets; the identity-swap degrader was not evaluated in time.
+- **Convention uncertainty.** We do not know BAR-ATH's possession convention. The decoder is tuned on
+  the mean over three conventions. If the truth is closer to 2 s, v5.5 gives up 0.005 against v5.2
+  (0.7147 vs 0.7201) and 0.012 against a 2 s-tuned decoder (0.7264); if it is closer to 0.5 s, a 2 s-
+  tuned decoder would have lost 0.037.
+- **Replay evidence is unscorable.** IDSSE has no broadcast feed, so the replay term was adopted on
+  label-free evidence only (EM-estimated weight, aggregates above), not on a CV score. Its weight was
+  estimated on v5.2's decoding and reused for v5.5 without re-estimation.
+- **Degrader mismatch in live play.** On our IDSSE evaluation copies the ball is missing on 28% of
+  live frames; on BAR-ATH (proxy: v5.2-predicted live frames) about 9%. Ball gaps are therefore a
+  weaker dead-ball cue in training than on the target, and the CV score may understate or misplace
+  the model's live-play errors.
+- **Seven matches, small margins.** v5.5's gain (+0.0035, 5/7) is near the noise of 7 matches (seed
+  spread about 0.008). External data did not help: PFF and Metrica, with event-derived labels, made
+  the score worse (§6), so more data of a different labelling style is not a free gain.
 
-On the full match, v2 predicts 226 possessions (mean 15.8 s) and 129 dead-ball stretches. Dead ball
-takes 44% of graded frames. v1 predicted 193 possessions.
+**Future work.** The oracle decomposition (§6) places the remaining error in which side has the
+ball during live play. Our roadmap follows from that:
 
-With 17 true possessions, one matched possession moves spellF1 by about 0.03, so v2 and v4 are not
-separable on this window. v4 labels the offside stoppage at 1:07 of the window (5.5 s) as dead
-ball on 109 of its 138 frames; v2 labels none of it dead. On the full match v4 predicts 222
-possessions (mean 15.9 s).
+1. **Co-train the pressure / control / relative-speed features (feature v3) with a decoder tuned for
+   them.** On their own they already raise frame accuracy on all 7 folds (by 0.001–0.002) and gain
+   +0.0065 at the 2 s convention.
+2. **Training data with ball movement during stoppages:** labelled tracking where the ball is not
+   frozen when dead, so the stoppage evidence that BAR-ATH shows can be learned and scored.
+3. **Validation with several seeds and several held-out corruptions per match,** so that gains of
+   about 0.003 become measurable.
 
-## 7. Limitations and future work
-
-- **Domain shift.** The degrader reproduces the ATD's main statistics, but not all of them. In the
-  fastest decile of play, degraded IDSSE still loses the ball on 26% of frames, against 10% in the
-  ATD. Bundesliga tracking also differs from the tracking used for BAR-ATH in ways we did not model.
-- **Possessions get merged.** v2 leans towards fewer, longer possessions:
-  - on IDSSE it finds 85% of the true number;
-  - on BAR-ATH it predicts 226, about 2.1 per graded minute, against 3.4 per minute in the public
-    reference window.
-
-  For spellF1 this is the safer error, but it is still an error.
-- **Label convention.** The 2 s controlled-possession bridge is our reading of the written
-  definition. The challenge's reference labels may treat contested balls differently.
-- **Video (tried, dropped).** We tried to fill the ATD's ball gaps from the tactical video:
-  - **Method.** A small public detector (Ultralytics YOLO11n) was fine-tuned on full-resolution
-    tiles. The labels were automatic: the ATD's own ball position, projected through the provided
-    homography. No human labelled anything.
-  - **Labels are aligned, ball is hard to see.** Measured by local contrast, the labels sit on
-    the ball, but the ball is a visible blob at only about 30% of ATD positions: it is 4–9 px wide
-    and often blurred. Detectors trained on single frames, then on frame-difference ("motion")
-    inputs, did not learn.
-  - **Best attempt.** Trained only on examples where the ball is visible. On held-out minutes its
-    top detection is on the ATD ball only 40–56% of the time, even when confident. Gaps are
-    harder still, so filling them would add mostly wrong ball positions. We dropped it; the
-    scripts remain (`scripts/video_*.py`, `requirements-video.txt`).
-  - **What could work with more time.** A dedicated tiny-ball model with longer temporal context
-    (a heatmap network over several frames).
+---
 
 ## 8. Reproduction
 
-```bash
-python run.py        # -> out/TheObservers.csv  (default method v55, sha d7e4bcfe…2a92)
-```
-
-The default is v5.5 (below); the fallback is v5.4 (`--method v54`, sha 443667c0…a154). v4, the earlier default, is `python run.py --method v4`.
-
-**v5.5** (the default; v5.4 + two members, a switch-weighted GRU and a 12.5 fps GRU, committed in
-`models/v55/`; decoder re-tuned on the mean over conventions):
+Python 3.14, `pip install -r requirements.txt` (pins `torch==2.15.0`, CPU). Data bundle paths via
+`MTAH_REPO_DIR` / `MTAH_DATA_DIR` (see README). The model also reads the broadcast `_atd.txt/.xml`
+and `_homography.csv` from the bundle.
 
 ```bash
-python run.py --method v55 --out out/TheObservers_v55.csv
+python run.py
 ```
 
-v5.5 sha256: `d7e4bcfe2fa4470903fc3fef28e2ce8040d1dd3559c296209769231fbfaf2a92`.
-
-**v5.4** (the fallback; v5.2's decoder tuned on the mean over the 2 / 1 / 0.5 s
-conventions, plus broadcast replay evidence on D, `possession/replay.py`):
-
-```bash
-python run.py --method v54 --out out/TheObservers_v54.csv
-```
-
-Weights are v5.1's committed `models/v51/*.pt`; `models/v54/v5.json` holds the decoder, Law 9,
-rounding, 1 inference thread and the frozen replay log-ratio (2.195, estimated label-free by EM on
-BAR-ATH; reproduction does not re-run EM). Also reads the broadcast ATD and homography (lag 4014 /
-26920 frames). v5.4 sha256: `443667c05bfedc30f3c8125265fc5af62fde16f8a69f8ad485eae7a6e1b4a154`.
-v5.2 (`--method v52`): `5a9f6e23f91ca68382e94d0e6b352bea55a3893183a8c52b024c7bb003b508f6`.
-Verified on Windows x86 by Tobias (v5.2, 2026-11-17): byte-identical, about 170 s.
-
-**v5.1** (NN ensemble + Law 9, the candidate submission):
-
-```bash
-python run.py --method v51 --out out/TheObservers_v51.csv
-```
-
-It loads the committed IDSSE-trained weights and config in `models/v51/` (two BiGRUs and one TCN,
-1.6 MB; `torch==2.15.0` from requirements.txt) and never retrains. Inference runs on one CPU thread
-with torch's deterministic algorithms. The final log-likelihoods are rounded to 1e-3 nats before the
-Viterbi decoder, so last-bit float differences between CPUs or BLAS builds cannot change the path.
-Perturbing the emissions by ±1e-4 changes 0 frames. v5.1 sha256:
-`b8239637e98e0aa68e58f4426131890ad0f7bcf9fce82502b2beaa70a96b674b`.
-
-`run.py --method v4` loads the committed v4 model (`models/emission_v4.joblib`) and decoder settings
-(`models/decoder_v4.json`). It never retrains. v4 sha256:
-`ce5399e8bb93b6022e667726963f02b368efc25a4532cdc218be64d4854b92be`.
-
-The previous submission, v2 (`models/emission_v2.joblib`, `models/decoder_v2.json`):
-
-```bash
-python run.py --method v2 --out out/TheObservers_v2.csv
-```
-
-v2 sha256: `f258bdea093f03c52f6fb24a258dbc23e6d17125a27738a7045f3ad576b041e6`.
-
-To rebuild the model from scratch (this gives a byte-identical model file):
-
-```bash
-python scripts/download_idsse.py              # IDSSE open data
-python scripts/build_idsse_features.py        # degrader fit (BAR-ATH tracking stats only) + IDSSE features
-python scripts/cv_idsse.py --tag v2 --nested  # LOMO CV and decoder tuning
-python scripts/train_idsse.py                 # final model on all 7 matches
-# v4: feature version 2
-python scripts/cv_idsse.py --tag f2_all --feature-version 2 --nested
-python scripts/train_idsse.py --version v4 --tag f2_all
-```
-
-Pipeline validation: our ATD loader, slot-to-team mapping, frame alignment
-(`video_frame = frame_id - 1`) and CSV writer reproduce all four of the organisers' baselines byte
-for byte (`scripts/reproduce_baseline.py`).
+- Writes `out/TheObservers.csv` (the default method is `v55`).
+- Expected sha256: `d7e4bcfe2fa4470903fc3fef28e2ce8040d1dd3559c296209769231fbfaf2a92`. Two runs
+  identical; about 2 min on 1 thread.
+- Loads the committed weights (`models/v51/*.pt`, three networks, and `models/v55/*.pt`, two
+  networks; 2.8 MB in all) and `models/v55/v5.json` (members, decoder, Law 9, rounding, 1 inference
+  thread, frozen replay weight). It never retrains and never runs EM.
+- Determinism: inference on 1 torch thread with deterministic algorithms; log-likelihoods rounded to
+  1e-3 before Viterbi. Perturbing the emissions by ±1e-4 changes 0 frames. Retraining the members
+  from scratch (IDSSE download, feature caches, `scripts/train_nn.py`; commands in `HANDOFF.md`) gives
+  byte-identical weights on macOS arm64.
+- Cross-platform: a teammate rebuilt **v5.2** (`--method v52`, sha256 `5a9f6e23f91c…08f6`) on
+  Windows x86 byte for byte (about 170 s). [Windows v5.5: pending]
+- **Fallback:** `python run.py --method v54` gives v5.4, sha256
+  `443667c05bfedc30f3c8125265fc5af62fde16f8a69f8ad485eae7a6e1b4a154`.
+- Pipeline check: our loader, frame alignment and CSV writer reproduce the organisers' four baselines
+  byte for byte (`scripts/reproduce_baseline.py`). Tests: `python -m pytest -q`, 109 pass.
